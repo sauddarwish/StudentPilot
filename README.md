@@ -1,7 +1,7 @@
 # StudentPilot 🎓
 
-A customizable AI study workspace. Zero build step, zero dependencies — just static
-HTML, CSS and ES modules, so it drops straight onto GitHub Pages.
+A deeply customizable AI study workspace. Zero build step, zero dependencies — just
+static HTML, CSS and ES modules, so it drops straight onto GitHub Pages.
 
 **Live:** https://sauddarwish.github.io/StudentPilot/
 
@@ -11,38 +11,71 @@ flip Live mode to make it real.
 
 ---
 
-## What's in it
+## Customization
 
-**Pilots** — saved personas, each with its own system prompt, opening line, and
-optional model/temperature override. Six ship by default (Socratic tutor, essay
-coach, exam drill, code mentor, reading digest, general). Add, edit, or delete your
-own in Settings → Pilots.
+The design principle: **every visual decision in the app is a CSS custom property.**
+The settings drawer does nothing but write to those tokens at runtime, so anything
+the UI can produce is also reachable by hand from `:root` — or from the Custom CSS
+box, which is injected live.
 
-**Prompt library** — type `/` in the composer to search saved prompts. `{{placeholders}}`
-get selected automatically after insertion so you can tab straight into them.
+### Theme
+Light / dark / follow-system · 7 palette presets (Default, Paper, Midnight, Forest,
+Rose, Terminal, Mono) · accent colour + separate gradient end stop, or flat ·
+background texture (none / dots / grid / accent glow / stripes) · **per-mode manual
+overrides for all 10 palette slots** — background, three surface layers, three text
+weights, two border weights and your own bubble colour, each independently
+resettable to the preset.
 
-**Appearance** — theme (light/dark/system), accent colour, font family, text size,
-message spacing, reading-column width, corner rounding, card vs. plain message style.
-Every one of these is a CSS custom property written at runtime; the whole look is
-driven from `:root`.
+### Layout
+Density presets (compact / comfortable / spacious) · message style (cards, plain
+text, solid accent, outline) · alignment (all-left or you-on-the-right) · avatars
+(emoji / initials / hidden) · sliders for message gap, column width, bubble padding
+X and Y, avatar size, sidebar width, corner rounding, border thickness, shadow
+depth and animation speed · sidebar on the left or right · animation kill-switch.
 
-**Model controls** — provider preset, base URL, model ID, optional API key, system
-prompt, temperature, top-p, max tokens, history depth, streaming toggle.
+### Type
+Five font presets plus a custom stack field · separate code-font stack · size,
+line height, letter spacing and bold weight.
 
-**Chats** — multiple conversations, full-text search, retry, edit-and-resend, stop
-mid-stream, Markdown export.
+### Branding
+Rename the whole thing — app name, logo emoji (it becomes the favicon), tagline,
+welcome heading and subheading, send-button label, composer placeholder.
 
-**Data** — everything lives in `localStorage` under one key. Export/import the whole
-config as JSON, or reset to defaults.
+### Behaviour
+Enter-to-send · live word count · timestamps · hover actions · auto-scroll ·
+streaming cursor · auto-titling · delete confirmation · default pilot · demo typing
+speed.
 
-**Shortcuts** — `⌘K` new chat · `⌘/` settings · `⌘B` sidebar · `Esc` close / stop ·
-`Tab` accept first prompt suggestion.
+### Pilots
+Saved personas, each with its own emoji, accent colour, description, system prompt,
+opening line, starter questions, and optional model / temperature / max-token
+overrides. Reorder, duplicate, delete. Six ship by default: Socratic tutor, essay
+coach, exam drill, code mentor, reading digest, general.
+
+### Prompts
+A tagged library — type `/` in the composer to search it. `{{placeholders}}` are
+selected automatically after insertion, so you can type straight over the first one.
+Reorder and duplicate.
+
+### Connections
+Multiple named endpoint profiles, each with its own provider preset, base URL, model
+ID, optional key and **arbitrary custom headers**. Radio-select the active one and
+hit **Test** to verify it before switching Live mode on.
+
+### Everything else
+Multi-chat with full-text search, retry, edit-and-resend, per-message delete, stop
+mid-stream, Markdown export · JSON export/import of the entire config *or* the theme
+alone · reset-the-look-only vs. reset-everything · `🎲 Surprise me` randomises the
+whole appearance.
+
+**Shortcuts** — `⌘K` new chat · `⌘/` settings · `⌘B` sidebar · `⌘⇧L` shuffle look ·
+`Esc` close / stop · `Tab` accept first prompt suggestion.
 
 ---
 
 ## Connecting a real model
 
-Open **Settings → Model**:
+**Settings → Model → Connections.** Add a connection, then:
 
 | Field | What to put |
 | --- | --- |
@@ -50,7 +83,10 @@ Open **Settings → Model**:
 | Base URL | Your endpoint, e.g. `https://your-proxy.example.com/v1` |
 | Model ID | e.g. `claude-sonnet-5` |
 | API key | Leave **empty** if your proxy holds the key — that's the right setup |
-| Live mode | On |
+| Headers | Any extras your proxy wants (auth, tenant id, …) |
+
+Then set generation defaults below it (system prompt, temperature, top-p, max
+tokens, history depth, stop sequences, streaming) and turn on **Live mode**.
 
 `assets/js/api.js` is the only file that knows about providers. It already builds
 both the Anthropic (`/messages`) and OpenAI-compatible (`/chat/completions`) request
@@ -80,9 +116,9 @@ python3 -m http.server 8000
 ## Layout
 
 ```
-index.html            app shell and settings drawer markup
-assets/css/app.css    all styling; the theme tokens live at the top
-assets/js/store.js    defaults, localStorage persistence, chat/pilot helpers
+index.html            app shell and the settings drawer markup
+assets/css/app.css    all styling; every token lives at the top of :root
+assets/js/store.js    defaults, theme/layout presets, localStorage persistence
 assets/js/markdown.js small escape-first Markdown renderer
 assets/js/api.js      provider adapters + demo stream — swap this to change backends
 assets/js/app.js      rendering and event wiring
