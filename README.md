@@ -92,6 +92,41 @@ tokens, history depth, stop sequences, streaming) and turn on **Live mode**.
 both the Anthropic (`/messages`) and OpenAI-compatible (`/chat/completions`) request
 shapes and parses SSE streams from either.
 
+### Self-hosting behind a password
+
+`server/` is a zero-dependency Node server that does the two things a static host
+can't: **enforce access** and **hold a secret**.
+
+```bash
+git clone https://github.com/sauddarwish/StudentPilot.git /opt/studentpilot
+cd /opt/studentpilot/server
+cp .env.example .env
+node set-password.js          # prints a password, stores only its scrypt hash
+$EDITOR .env                  # add ANTHROPIC_API_KEY
+sudo cp studentpilot.service /etc/systemd/system/
+sudo systemctl enable --now studentpilot
+```
+
+Then put nginx in front of `127.0.0.1:$PORT` with `proxy_buffering off` (streaming
+breaks without it) and run `certbot --nginx`.
+
+**The gate is server-side.** A request without a valid session never receives
+`index.html`, the JS or the CSS — it gets a 302 to `/login`, and `/api/*` gets a 401.
+Sessions are HMAC-signed cookies (`HttpOnly; Secure; SameSite=Lax`), passwords are
+stored as a scrypt hash, and login is rate-limited per IP (8 attempts / 15 min,
+failing closed — a correct password is refused while locked). Static serving is
+allowlisted to `index.html` and `assets/`, so `server/.env`, `.git` and everything
+else return 404.
+
+**The key stays on the server.** Point a connection's Base URL at
+`https://your-host/api/v1` and leave the key field empty. The browser posts to
+`/api/v1/messages` on your own origin; the server attaches `ANTHROPIC_API_KEY` from
+`.env` and streams the response straight back, so SSE still works and the key is
+never shipped to the client.
+
+Rotate the password any time with `node set-password.js` followed by
+`sudo systemctl restart studentpilot`.
+
 ### About keys in the browser
 
 The API-key field exists for local experiments, and it never leaves your browser —
