@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-bubbles="card">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>StudentPilot</title>
+<meta name="description" content="A customizable AI study workspace — pilots, prompt library, and full control over the model.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<div class="app" id="app" data-sidebar="shown">
+
+  <!-- ================= Sidebar ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand__mark">🎓</div>
+      <div>
+        <div class="brand__name">StudentPilot</div>
+        <div class="brand__tag" id="modeTag">demo mode</div>
+      </div>
+    </div>
+
+    <div class="sidebar__section">
+      <button class="btn btn--primary btn--full" id="newChatBtn">
+        <span>＋</span><span>New chat</span>
+      </button>
+    </div>
+
+    <div class="sidebar__section">
+      <input class="input" id="chatSearch" type="search" placeholder="Search chats…" autocomplete="off">
+    </div>
+
+    <div class="sidebar__scroll">
+      <div class="sidebar__label">Pilots</div>
+      <div class="sidebar__section" id="pilotList"></div>
+
+      <div class="sidebar__label">
+        <span>Chats</span>
+        <button class="tool-btn" id="clearChatsBtn" title="Delete all chats">clear</button>
+      </div>
+      <div class="sidebar__section" id="chatList"></div>
+    </div>
+
+    <div class="sidebar__foot">
+      <button class="btn btn--ghost btn--full" id="settingsBtn"><span>⚙️</span><span>Settings</span></button>
+      <button class="btn btn--ghost btn--full" id="shortcutsBtn"><span>⌨️</span><span>Shortcuts</span></button>
+    </div>
+  </aside>
+
+  <!-- ================= Main ================= -->
+  <main class="main">
+    <header class="topbar">
+      <button class="btn btn--ghost btn--icon" id="toggleSidebarBtn" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
+      <div style="min-width:0">
+        <div class="topbar__title" id="chatTitle">New chat</div>
+        <div class="topbar__meta" id="chatMeta"></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="badge" id="connBadge">demo</span>
+      <button class="btn btn--ghost btn--sm" id="exportChatBtn" title="Export this chat as Markdown">Export</button>
+      <button class="btn btn--ghost btn--icon" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+    </header>
+
+    <div class="transcript" id="transcript">
+      <div id="welcome" class="welcome">
+        <h1>What are we working on?</h1>
+        <p>Pick a pilot to start, or just type below.</p>
+        <div class="pilot-grid" id="pilotGrid"></div>
+      </div>
+      <div class="transcript__inner" id="messages"></div>
+    </div>
+
+    <div class="composer-wrap">
+      <form class="composer" id="composer">
+        <div class="composer__chips" id="composerChips"></div>
+        <textarea class="composer__input" id="input" rows="1"
+                  placeholder="Ask anything… (/ for saved prompts)"></textarea>
+        <div class="composer__row">
+          <button type="button" class="btn btn--ghost btn--sm" id="pilotPickerBtn">🎯 <span id="activePilotName">General</span></button>
+          <span class="hint" id="modelHint"></span>
+          <div class="spacer"></div>
+          <button type="button" class="btn btn--ghost btn--sm" id="stopBtn" hidden>Stop</button>
+          <button type="submit" class="btn btn--primary btn--sm" id="sendBtn">Send ↵</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<!-- ================= Settings drawer ================= -->
+<div class="scrim" id="scrim" data-open="false"></div>
+<aside class="drawer" id="drawer" data-open="false" aria-label="Settings">
+  <div class="drawer__head">
+    <div class="drawer__title">Settings</div>
+    <div class="spacer"></div>
+    <button class="btn btn--ghost btn--icon" id="closeDrawerBtn" aria-label="Close">✕</button>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="appearance" aria-selected="true">Appearance</button>
+    <button class="tab" role="tab" data-tab="model" aria-selected="false">Model</button>
+    <button class="tab" role="tab" data-tab="pilots" aria-selected="false">Pilots</button>
+    <button class="tab" role="tab" data-tab="prompts" aria-selected="false">Prompts</button>
+    <button class="tab" role="tab" data-tab="data" aria-selected="false">Data</button>
+  </div>
+
+  <div class="drawer__body">
+
+    <!-- ---- Appearance ---- -->
+    <section class="panel" data-panel="appearance" data-active="true">
+      <div class="section-title">Theme</div>
+      <div class="field">
+        <div class="row">
+          <select class="select" id="setTheme">
+            <option value="system">Follow system</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field__label">Accent colour</label>
+        <div class="swatches" id="accentSwatches"></div>
+        <div class="row" style="margin-top:8px">
+          <input type="color" class="input" id="setAccentCustom" style="width:52px;padding:3px;height:34px">
+          <span class="field__help">or pick your own</span>
+        </div>
+      </div>
+
+      <div class="section-title">Typography</div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="setFont">Interface font</label>
+          <select class="select" id="setFont">
+            <option value='"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'>System sans</option>
+            <option value='Georgia,"Iowan Old Style","Times New Roman",serif'>Serif</option>
+            <option value='"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace'>Monospace</option>
+            <option value='"Comic Sans MS","Chalkboard SE",cursive'>Casual</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="setFontSize">Text size — <span id="fontSizeVal"></span></label>
+          <input class="range" type="range" id="setFontSize" min="13" max="19" step="1">
+        </div>
+      </div>
+
+      <div class="section-title">Layout</div>
+      <div class="field">
+        <label class="field__label" for="setBubbles">Message style</label>
+        <select class="select" id="setBubbles">
+          <option value="card">Cards</option>
+          <option value="plain">Plain text</option>
+        </select>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="setDensity">Spacing — <span id="densityVal"></span></label>
+          <input class="range" type="range" id="setDensity" min="8" max="34" step="2">
+        </div>
+        <div class="field">
+          <label class="field__label" for="setWidth">Column width — <span id="widthVal"></span></label>
+          <input class="range" type="range" id="setWidth" min="34" max="76" step="2">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field__label" for="setRadius">Corner rounding — <span id="radiusVal"></span></label>
+        <input class="range" type="range" id="setRadius" min="0" max="26" step="2">
+      </div>
+
+      <div class="switch">
+        <span class="switch__text">Send on Enter <span class="field__help">(off = Cmd/Ctrl+Enter)</span></span>
+        <input type="checkbox" id="setEnterSends">
+      </div>
+      <div class="switch">
+        <span class="switch__text">Show timestamps</span>
+        <input type="checkbox" id="setTimestamps">
+      </div>
+    </section>
+
+    <!-- ---- Model ---- -->
+    <section class="panel" data-panel="model">
+      <div class="callout">
+        No backend is wired up yet, so StudentPilot runs in <strong>demo mode</strong> and replies with a
+        scripted stub. Fill this in later and flip the switch at the bottom — the request shape is already
+        built in <code>assets/js/api.js</code>.
+      </div>
+
+      <div class="section-title">Provider</div>
+      <div class="field">
+        <label class="field__label" for="setProvider">Preset</label>
+        <select class="select" id="setProvider">
+          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI-compatible</option>
+          <option value="custom">Custom endpoint</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field__label" for="setBaseUrl">Base URL</label>
+        <input class="input" id="setBaseUrl" placeholder="https://api.example.com/v1" spellcheck="false">
+        <span class="field__help">Point this at your own proxy so no key ever touches the browser.</span>
+      </div>
+      <div class="field">
+        <label class="field__label" for="setModel">Model ID</label>
+        <input class="input" id="setModel" placeholder="claude-sonnet-5" spellcheck="false">
+      </div>
+      <div class="field">
+        <label class="field__label" for="setApiKey">API key <span class="field__help">(optional, stored in this browser only)</span></label>
+        <input class="input" id="setApiKey" type="password" placeholder="leave empty if your proxy holds the key" spellcheck="false">
+      </div>
+
+      <div class="section-title">Generation defaults</div>
+      <div class="field">
+        <label class="field__label" for="setSystem">System prompt</label>
+        <textarea class="textarea" id="setSystem" placeholder="You are StudentPilot…"></textarea>
+        <span class="field__help">Pilots can override this per-conversation.</span>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="setTemp">Temperature — <span id="tempVal"></span></label>
+          <input class="range" type="range" id="setTemp" min="0" max="1" step="0.05">
+        </div>
+        <div class="field">
+          <label class="field__label" for="setTopP">Top-p — <span id="topPVal"></span></label>
+          <input class="range" type="range" id="setTopP" min="0" max="1" step="0.05">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="setMaxTokens">Max output tokens</label>
+          <input class="input" id="setMaxTokens" type="number" min="64" max="64000" step="64">
+        </div>
+        <div class="field">
+          <label class="field__label" for="setHistory">History turns sent</label>
+          <input class="input" id="setHistory" type="number" min="1" max="100" step="1">
+        </div>
+      </div>
+
+      <div class="switch">
+        <span class="switch__text">Stream responses</span>
+        <input type="checkbox" id="setStream">
+      </div>
+      <div class="switch">
+        <span class="switch__text">Live mode <span class="field__help">(off = demo replies)</span></span>
+        <input type="checkbox" id="setLive">
+      </div>
+    </section>
+
+    <!-- ---- Pilots ---- -->
+    <section class="panel" data-panel="pilots">
+      <div class="callout">
+        A <strong>pilot</strong> is a saved persona: its own system prompt, greeting, and optional model
+        and temperature overrides. Chats remember which pilot they were started with.
+      </div>
+      <div id="pilotEditor"></div>
+      <button class="btn btn--full" id="addPilotBtn"><span>＋</span><span>New pilot</span></button>
+    </section>
+
+    <!-- ---- Prompts ---- -->
+    <section class="panel" data-panel="prompts">
+      <div class="callout">
+        Saved prompts show up when you type <code>/</code> in the composer. Use
+        <code>{{topic}}</code>-style placeholders and you'll be asked to fill them in.
+      </div>
+      <div id="promptEditor"></div>
+      <button class="btn btn--full" id="addPromptBtn"><span>＋</span><span>New prompt</span></button>
+    </section>
+
+    <!-- ---- Data ---- -->
+    <section class="panel" data-panel="data">
+      <div class="section-title">Backup</div>
+      <div class="field">
+        <span class="field__help">
+          Everything — settings, pilots, prompts and chats — lives in this browser's localStorage.
+          Nothing is uploaded anywhere.
+        </span>
+      </div>
+      <div class="row" style="gap:8px;margin-bottom:18px">
+        <button class="btn" id="exportAllBtn">⬇ Export config</button>
+        <button class="btn" id="importAllBtn">⬆ Import config</button>
+        <input type="file" id="importFile" accept="application/json" hidden>
+      </div>
+
+      <div class="section-title">Storage</div>
+      <div class="field"><span class="field__help" id="storageInfo"></span></div>
+
+      <div class="section-title">Reset</div>
+      <button class="btn btn--danger btn--full" id="resetBtn">Reset everything to defaults</button>
+    </section>
+
+  </div>
+</aside>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
