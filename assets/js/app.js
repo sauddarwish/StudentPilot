@@ -1513,8 +1513,19 @@ function wireAccountPanel() {
       const out = await postJson("/api/keys", { provider, key });
       savedKeys = out.keys ?? {};
       $("#keyValue").value = "";
-      state.model.serverProvider = provider;
-      status.textContent = "Stored, encrypted. Cram will relay your requests through it.";
+
+      /* Only adopt the new provider if the one in use has no key yet, so adding
+         a second key does not silently move you off the model you had picked. */
+      const current = state.model.serverProvider;
+      if (!savedKeys[current]) {
+        state.model.serverProvider = provider;
+        state.model.model = PROVIDERS[provider].models[0].id;
+        renderModelPicker(); refreshHeader();
+        status.textContent = `Stored, encrypted. Now using ${modelInfo(provider, state.model.model)?.name}.`;
+      } else {
+        status.textContent =
+          `Stored, encrypted. Still using ${PROVIDER_LABEL[current]}; switch provider above to use it.`;
+      }
       syncServerLiveState();
       renderKeyVault(); renderConnections();
       toast("Key encrypted and stored");
@@ -1644,15 +1655,15 @@ function wireEvents() {
     save(); renderPromptEditor();
   };
 
+  /* In server mode there is no endpoint to configure, so those controls are
+     hidden. This must NOT return: everything below still needs wiring. */
   if (serverMode) {
     $("#addConnBtn").hidden = true;
     $("#useSharedBtn").hidden = true;
     $("#connHint").hidden = false;
     $("#setLive").closest(".switch").hidden = true;   // derived, not chosen
     renderConnections();
-    return;
-  }
-
+  } else {
   const useShared = $("#useSharedBtn");
   const hasStoredKey = Object.keys(savedKeys).length > 0;
   useShared.hidden = !((sharedEndpoint && sharedEndpoint.available) || hasStoredKey);
@@ -1682,6 +1693,7 @@ function wireEvents() {
     });
     save(); renderConnections();
   };
+  }
 
   // composer
   dom.input.addEventListener("input", () => { autosize(); refreshChips(); updateCount(); });
