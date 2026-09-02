@@ -300,33 +300,36 @@ async function serveStatic(req, res, urlPath) {
    ========================================================================== */
 
 const AUTH_CSS = `
-  :root{--bg:#f6f7fb;--surface:#fff;--surface-2:#f0f1f6;--text:#12141c;--dim:#5b6072;
-        --border:#e2e4ed;--accent:#6366f1;--accent2:#8b5cf6;--danger:#dc2626}
+  :root{--bg:#efece3;--surface:#f8f6f0;--surface-2:#e7e3d8;--text:#1c1b17;--dim:#57544c;
+        --border:#ded9cc;--accent:#c15f3c;--danger:#a33a28}
   @media (prefers-color-scheme:dark){
-    :root{--bg:#0c0d12;--surface:#14161e;--surface-2:#1b1e28;--text:#eceef5;--dim:#a2a8bd;
-          --border:#242733;--danger:#f87171}
+    :root{--bg:#171612;--surface:#1e1d18;--surface-2:#262420;--text:#ece7dc;--dim:#aaa495;
+          --border:#2a2822;--danger:#d98873}
   }
   *{box-sizing:border-box}
   body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--text);
-       font:15px/1.55 "Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
-  .card{width:100%;max-width:368px;background:var(--surface);border:1px solid var(--border);
-        border-radius:16px;padding:26px;box-shadow:0 8px 30px rgba(10,12,20,.10)}
-  .mark{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;
-        background:linear-gradient(135deg,var(--accent),var(--accent2));font-size:21px;margin-bottom:14px}
-  h1{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
-  p.sub{margin:0 0 20px;color:var(--dim);font-size:13px}
-  label{display:block;font-size:12.5px;font-weight:600;margin:0 0 6px}
-  .f{margin-bottom:13px}
-  input{width:100%;padding:10px 12px;font:inherit;background:var(--surface-2);color:var(--text);
-        border:1px solid var(--border);border-radius:10px;outline:none}
+       font:16px/1.65 "Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Charter,Georgia,serif;
+       padding:20px;font-variant-numeric:oldstyle-num}
+  .card{width:100%;max-width:372px;background:var(--surface);border:1px solid var(--border);
+        border-radius:5px;padding:32px 30px;box-shadow:0 1px 2px rgba(40,34,22,.06),0 6px 18px rgba(40,34,22,.05)}
+  .mark{width:38px;height:38px;display:grid;place-items:center;border-radius:4px;
+        background:var(--accent);color:#fff;font-size:19px;margin-bottom:18px}
+  h1{font-size:23px;margin:0 0 5px;font-weight:600;font-style:italic;letter-spacing:-.005em}
+  p.sub{margin:0 0 24px;color:var(--dim);font-size:14px}
+  label{display:block;font-size:11px;font-weight:600;margin:0 0 6px;
+        text-transform:uppercase;letter-spacing:.1em;color:var(--dim)}
+  .f{margin-bottom:15px}
+  input{width:100%;padding:10px 12px;font:inherit;font-size:15px;background:var(--surface-2);color:var(--text);
+        border:1px solid var(--border);border-radius:4px;outline:none}
   input:focus{border-color:var(--accent)}
-  button{width:100%;margin-top:4px;padding:10px;font:inherit;font-weight:600;cursor:pointer;
-         background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0;border-radius:10px}
-  button:hover{filter:brightness(1.08)}
-  .err{margin:13px 0 0;color:var(--danger);font-size:12.5px}
-  .alt{margin:18px 0 0;color:var(--dim);font-size:12.5px;text-align:center}
+  button{width:100%;margin-top:6px;padding:11px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;
+         background:var(--accent);color:#fff;border:0;border-radius:4px}
+  button:hover{filter:brightness(1.06)}
+  .err{margin:14px 0 0;color:var(--danger);font-size:13px}
+  .alt{margin:22px 0 0;padding-top:16px;border-top:1px solid var(--border);
+       color:var(--dim);font-size:13px;text-align:center}
   .alt a{color:var(--accent)}
-  .hint{color:var(--dim);font-size:11.5px;margin:5px 0 0}`;
+  .hint{color:var(--dim);font-size:12px;margin:6px 0 0}`;
 
 function authPage({ mode, error = "", email = "", notice = "" }) {
   const signup = mode === "signup";

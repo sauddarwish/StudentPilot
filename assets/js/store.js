@@ -5,30 +5,64 @@
 
 export const STORAGE_KEY = "cram.v1";
 
+/* Muted, ink-and-pigment tones — nothing neon. */
 export const ACCENTS = [
-  "#6366f1", "#0ea5e9", "#10b981", "#f59e0b",
-  "#ef4444", "#ec4899", "#8b5cf6", "#64748b",
+  "#c15f3c", "#a8503a", "#8a6a3f", "#6b7150",
+  "#4a7c6f", "#4a6b8a", "#7a5b7d", "#4a4a46",
 ];
 
 /* Theme presets write a whole palette at once. `light`/`dark` keys are merged
    over the stylesheet defaults; anything omitted falls back to the stylesheet. */
 export const THEME_PRESETS = {
-  default: {
-    name: "Default", accent: "#6366f1", accent2: "#8b5cf6",
-    light: {}, dark: {},
-  },
-  paper: {
-    name: "Paper", accent: "#b45309", accent2: "#d97706",
+  /* Cream stock, warm ink, one muted terracotta accent. */
+  book: {
+    name: "Book", accent: "#c15f3c", accent2: "#c15f3c",
     light: {
-      bg: "#f5f1e8", surface: "#fffdf7", "surface-2": "#efe9dc", "surface-3": "#e3dbc9",
-      text: "#2b2417", "text-dim": "#6b5f4a", "text-faint": "#9a8d75",
-      border: "#e2d9c6", "border-strong": "#cdc0a5",
+      bg: "#efece3", surface: "#f8f6f0", "surface-2": "#e7e3d8", "surface-3": "#dcd7c9",
+      text: "#1c1b17", "text-dim": "#57544c", "text-faint": "#8a867b",
+      border: "#ded9cc", "border-strong": "#c6c0ae",
+      "user-bubble": "#e5e0d2",
     },
     dark: {
-      bg: "#17150f", surface: "#1f1c14", "surface-2": "#282318", "surface-3": "#332d1f",
-      text: "#f0e9d8", "text-dim": "#b5a98d", "text-faint": "#7d735e",
-      border: "#2f2a1d", "border-strong": "#463e2b",
+      bg: "#171612", surface: "#1e1d18", "surface-2": "#262420", "surface-3": "#322f28",
+      text: "#ece7dc", "text-dim": "#aaa495", "text-faint": "#7b7568",
+      border: "#2a2822", "border-strong": "#3d3a31",
+      "user-bubble": "#262420",
     },
+  },
+  vellum: {
+    name: "Vellum", accent: "#8a6a3f", accent2: "#8a6a3f",
+    light: {
+      bg: "#f4f0e4", surface: "#fbf9f2", "surface-2": "#ebe6d6", "surface-3": "#ded7c3",
+      text: "#221f16", "text-dim": "#5d5748", "text-faint": "#918a77",
+      border: "#e3ddcb", "border-strong": "#cbc3ab",
+      "user-bubble": "#eae4d2",
+    },
+    dark: {
+      bg: "#191710", surface: "#211e16", "surface-2": "#2a261c", "surface-3": "#363126",
+      text: "#efe9d9", "text-dim": "#b2aa93", "text-faint": "#7e7765",
+      border: "#2c2820", "border-strong": "#403a2d",
+      "user-bubble": "#2a261c",
+    },
+  },
+  slate: {
+    name: "Slate", accent: "#5b6b73", accent2: "#5b6b73",
+    light: {
+      bg: "#eceeee", surface: "#f7f8f8", "surface-2": "#e2e5e6", "surface-3": "#d5d9da",
+      text: "#191c1d", "text-dim": "#53595b", "text-faint": "#868c8e",
+      border: "#dcdfe0", "border-strong": "#c1c6c8",
+      "user-bubble": "#e0e4e5",
+    },
+    dark: {
+      bg: "#131617", surface: "#1a1d1e", "surface-2": "#232728", "surface-3": "#2e3334",
+      text: "#e6eaeb", "text-dim": "#a3aaac", "text-faint": "#757c7e",
+      border: "#262a2b", "border-strong": "#383e3f",
+      "user-bubble": "#232728",
+    },
+  },
+  default: {
+    name: "Ink", accent: "#4a4a46", accent2: "#4a4a46",
+    light: {}, dark: {},
   },
   midnight: {
     name: "Midnight", accent: "#38bdf8", accent2: "#818cf8",
@@ -105,11 +139,13 @@ export const LAYOUT_PRESETS = {
 };
 
 export const FONT_STACKS = {
+  /* Book faces first — all of these ship with macOS/Windows, so nothing is
+     fetched over the network (the CSP forbids it anyway). */
+  book: '"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Charter,Georgia,serif',
+  literary: 'Charter,Georgia,"Bitstream Charter","Sitka Text","Times New Roman",serif',
+  transitional: 'Baskerville,"Libre Baskerville","Hoefler Text",Garamond,Georgia,serif',
   system: '"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-  serif: 'Georgia,"Iowan Old Style","Times New Roman",serif',
   mono: '"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace',
-  rounded: '"SF Pro Rounded","Nunito",system-ui,sans-serif',
-  casual: '"Comic Sans MS","Chalkboard SE",cursive',
 };
 
 export const DEFAULT_PILOTS = [
@@ -187,7 +223,7 @@ export const DEFAULT_CONNECTIONS = [
 ];
 
 export const DEFAULTS = {
-  version: 2,
+  version: 3,
 
   brand: {
     name: "Cram",
@@ -201,35 +237,35 @@ export const DEFAULTS = {
 
   ui: {
     theme: "system",
-    preset: "default",
-    accent: "#6366f1",
-    accent2: "#8b5cf6",
-    gradient: true,
+    preset: "book",
+    accent: "#c15f3c",
+    accent2: "#c15f3c",
+    gradient: false,
     palettes: { light: {}, dark: {} },   // per-mode manual colour overrides
 
-    font: "system",                      // key into FONT_STACKS, or "custom"
+    font: "book",                        // key into FONT_STACKS, or "custom"
     fontMono: FONT_STACKS.mono,
     fontCustom: "",
-    fontSize: 15,
-    lineHeight: 1.55,
+    fontSize: 16,
+    lineHeight: 1.68,
     letterSpacing: 0,
-    boldWeight: 650,
+    boldWeight: 600,
 
     layoutPreset: "comfortable",
-    density: 16,
+    density: 22,
     padY: 10,
-    padX: 14,
-    width: 46,
-    radius: 14,
+    padX: 15,
+    width: 42,
+    radius: 5,
     borderW: 1,
-    shadow: 1,
-    avatarSize: 28,
+    shadow: 0.3,
+    avatarSize: 26,
     sidebarWidth: 272,
     sidebarSide: "left",
 
-    bubbles: "card",
+    bubbles: "plain",
     align: "left",
-    avatars: "emoji",
+    avatars: "initials",
     pattern: "none",
     animations: true,
     speed: 0.2,
@@ -321,7 +357,18 @@ export function load(key = activeKey) {
       }
     }
     if (!raw) return structuredClone(DEFAULTS);
-    return merge(structuredClone(DEFAULTS), JSON.parse(raw));
+
+    const saved = JSON.parse(raw);
+    const merged = merge(structuredClone(DEFAULTS), saved);
+
+    /* The look was redesigned in v3. Appearance settings saved under the old
+       palette would otherwise pin an install to the previous theme forever, so
+       they are reset once. Chats, pilots, prompts and branding are untouched. */
+    if ((Number(saved.version) || 0) < 3) {
+      merged.ui = { ...structuredClone(DEFAULTS.ui), sidebar: merged.ui?.sidebar ?? "shown" };
+      merged.version = DEFAULTS.version;
+    }
+    return merged;
   } catch {
     return structuredClone(DEFAULTS);
   }
