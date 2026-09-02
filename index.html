@@ -47,6 +47,11 @@
     </div>
 
     <div class="sidebar__foot">
+      <div class="account" id="accountRow" hidden>
+        <div class="account__avatar" id="accountAvatar"></div>
+        <div class="account__email" id="accountEmail"></div>
+        <a class="btn btn--ghost btn--sm" id="signOutBtn" href="/logout" title="Sign out">Sign out</a>
+      </div>
       <button class="btn btn--ghost btn--full" id="settingsBtn"><span>⚙️</span><span>Settings</span></button>
       <button class="btn btn--ghost btn--full" id="shortcutsBtn"><span>⌨️</span><span>Shortcuts</span></button>
     </div>
@@ -405,14 +410,17 @@
     <!-- ---------------- Model ---------------- -->
     <section class="panel" data-panel="model">
       <div class="callout">
-        No backend is wired up yet, so this runs in <strong>demo mode</strong> and replies with a scripted stub.
-        Add a connection below and flip Live mode — the request shapes already exist in
-        <code>assets/js/api.js</code>.
+        Cram talks to the model straight from your browser using <strong>your own API key</strong> —
+        add a connection below and turn on Live mode. Until then it replies with a scripted demo stub.
+        Your key is stored only in this browser and is never sent to the Cram server.
       </div>
 
       <div class="section-title">Connections</div>
       <div id="connectionEditor"></div>
-      <button class="btn btn--full" id="addConnBtn"><span>＋</span><span>New connection</span></button>
+      <div class="row" style="gap:8px">
+        <button class="btn btn--full" id="addConnBtn"><span>＋</span><span>New connection</span></button>
+        <button class="btn btn--sm" id="useSharedBtn" hidden>Use this server's key</button>
+      </div>
 
       <div class="section-title">Generation defaults</div>
       <div class="field">

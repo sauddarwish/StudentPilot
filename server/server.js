@@ -2,13 +2,15 @@
 /* ==========================================================================
    Cram server
 
-   Two jobs:
-     1. Gate the whole site behind a password. The check is server-side — an
-        unauthenticated request never receives index.html, the JS, or the CSS.
-        Only the login page and its POST handler are reachable logged out.
-     2. Hold the model API key. The browser talks to /api/v1/messages on this
-        origin; the key lives in .env and is attached here, server-side, so it
-        is never shipped to the client.
+   Jobs:
+     1. Accounts. Email + password signup and login, enforced server-side —
+        an unauthenticated request never receives index.html, the JS or the
+        CSS. Only /login, /signup and their POST handlers are reachable
+        logged out.
+     2. An optional model proxy. If the operator puts a key in .env, signed-in
+        users can point a connection at /api/v1 on this origin and the key is
+        attached here rather than in the browser. Users are also free to use
+        their own keys directly — that is the default.
 
    Zero npm dependencies — node:http, node:crypto and global fetch only.
    ========================================================================== */
@@ -19,6 +21,10 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+
+import {
+  createUser, verifyUser, findById, noteLogin, count as userCount,
+} from "./users.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = path.resolve(HERE, "..");
@@ -48,84 +54,57 @@ const CONFIG = {
   port: Number(process.env.PORT || 8080),
   host: process.env.HOST || "127.0.0.1",
 
-  // auth
-  passwordHash: process.env.SITE_PASSWORD_HASH || "",
-  passwordPlain: process.env.SITE_PASSWORD || "",
   sessionSecret: process.env.SESSION_SECRET || "",
-  sessionHours: Number(process.env.SESSION_HOURS || 12),
+  sessionDays: Number(process.env.SESSION_DAYS || 14),
   secureCookie: (process.env.SECURE_COOKIE ?? "true") !== "false",
+  allowSignup: (process.env.ALLOW_SIGNUP ?? "true") !== "false",
 
-  // upstream model provider
+  // optional shared proxy — off unless the operator supplies a key
   anthropicKey: process.env.ANTHROPIC_API_KEY || "",
   anthropicBase: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com/v1",
   openaiKey: process.env.OPENAI_API_KEY || "",
   openaiBase: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  forceModel: process.env.FORCE_MODEL || "",
+  maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 8192),
 
   maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 256 * 1024),
-  loginMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 8),
-  loginWindowMin: Number(process.env.LOGIN_WINDOW_MIN || 15),
-
-  // managed mode: the client may not bring its own endpoint, key or limits
-  managed: (process.env.MANAGED_MODE ?? "true") !== "false",
-  forceModel: process.env.FORCE_MODEL || "",
-  maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 4096),
+  authMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 10),
+  authWindowMin: Number(process.env.LOGIN_WINDOW_MIN || 15),
 };
 
 if (!CONFIG.sessionSecret) {
   console.error("FATAL: SESSION_SECRET is not set in server/.env");
   process.exit(1);
 }
-if (!CONFIG.passwordHash && !CONFIG.passwordPlain) {
-  console.error("FATAL: set SITE_PASSWORD_HASH (preferred) or SITE_PASSWORD in server/.env");
-  process.exit(1);
-}
+
+const COOKIE = "cram_session";
 
 /* ==========================================================================
-   Password + session
+   Sessions
    ========================================================================== */
-
-/* scrypt hash format: scrypt$<saltHex>$<keyHex> */
-function verifyPassword(candidate) {
-  if (CONFIG.passwordHash) {
-    const [scheme, saltHex, keyHex] = CONFIG.passwordHash.split("$");
-    if (scheme !== "scrypt" || !saltHex || !keyHex) return false;
-    const expected = Buffer.from(keyHex, "hex");
-    let actual;
-    try {
-      actual = crypto.scryptSync(candidate, Buffer.from(saltHex, "hex"), expected.length);
-    } catch {
-      return false;
-    }
-    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-  }
-
-  const a = Buffer.from(candidate);
-  const b = Buffer.from(CONFIG.passwordPlain);
-  // hash both sides so timingSafeEqual gets equal-length buffers
-  const ha = crypto.createHash("sha256").update(a).digest();
-  const hb = crypto.createHash("sha256").update(b).digest();
-  return crypto.timingSafeEqual(ha, hb);
-}
 
 const sign = (data) =>
   crypto.createHmac("sha256", CONFIG.sessionSecret).update(data).digest("base64url");
 
-function issueSession() {
-  const expires = Date.now() + CONFIG.sessionHours * 3600_000;
-  const payload = Buffer.from(JSON.stringify({ exp: expires })).toString("base64url");
+function issueSession(userId) {
+  const exp = Date.now() + CONFIG.sessionDays * 86_400_000;
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp })).toString("base64url");
   return `${payload}.${sign(payload)}`;
 }
 
-function validSession(token) {
-  if (!token || !token.includes(".")) return false;
+/** @returns the signed-in user record, or null */
+function sessionUser(token) {
+  if (!token || !token.includes(".")) return null;
   const [payload, mac] = token.split(".");
   const expected = sign(payload);
-  if (mac.length !== expected.length) return false;
-  if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return false;
+  if (mac.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return null;
   try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString()).exp > Date.now();
+    const { uid, exp } = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (!(exp > Date.now())) return null;
+    return findById(uid);            // deleted accounts stop working immediately
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -136,23 +115,23 @@ const parseCookies = (header = "") =>
       return i === -1 ? [c.trim(), ""] : [c.slice(0, i).trim(), decodeURIComponent(c.slice(i + 1).trim())];
     }).filter(([k]) => k));
 
-/* ---- login throttling --------------------------------------------------- */
+/* ---- throttling (shared by login and signup) ---------------------------- */
 
 const attempts = new Map(); // ip -> { count, first }
 
 function throttled(ip) {
   const rec = attempts.get(ip);
   if (!rec) return false;
-  if (Date.now() - rec.first > CONFIG.loginWindowMin * 60_000) {
+  if (Date.now() - rec.first > CONFIG.authWindowMin * 60_000) {
     attempts.delete(ip);
     return false;
   }
-  return rec.count >= CONFIG.loginMaxAttempts;
+  return rec.count >= CONFIG.authMaxAttempts;
 }
 
 function noteFailure(ip) {
   const rec = attempts.get(ip);
-  if (!rec || Date.now() - rec.first > CONFIG.loginWindowMin * 60_000) {
+  if (!rec || Date.now() - rec.first > CONFIG.authWindowMin * 60_000) {
     attempts.set(ip, { count: 1, first: Date.now() });
   } else {
     rec.count++;
@@ -160,7 +139,7 @@ function noteFailure(ip) {
 }
 
 setInterval(() => {
-  const cutoff = Date.now() - CONFIG.loginWindowMin * 60_000;
+  const cutoff = Date.now() - CONFIG.authWindowMin * 60_000;
   for (const [ip, rec] of attempts) if (rec.first < cutoff) attempts.delete(ip);
 }, 5 * 60_000).unref();
 
@@ -177,11 +156,7 @@ function readBody(req, limit = CONFIG.maxBodyBytes) {
     let size = 0;
     req.on("data", (c) => {
       size += c.length;
-      if (size > limit) {
-        reject(new Error("payload too large"));
-        req.destroy();
-        return;
-      }
+      if (size > limit) { reject(new Error("payload too large")); req.destroy(); return; }
       chunks.push(c);
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
@@ -199,8 +174,15 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
+const html = (res, status, body, headers = {}) =>
+  send(res, status, body, { "content-type": "text/html; charset=utf-8", ...headers });
+
 const json = (res, status, obj, headers = {}) =>
   send(res, status, JSON.stringify(obj), { "content-type": "application/json; charset=utf-8", ...headers });
+
+const escapeHtml = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -212,10 +194,9 @@ const MIME = {
   ".jpg": "image/jpeg",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
-  ".md": "text/markdown; charset=utf-8",
 };
 
-/* only these prefixes are ever served from disk */
+/* only these paths are ever served from disk */
 const SERVE_ALLOW = [/^\/$/, /^\/index\.html$/, /^\/assets\//];
 
 async function serveStatic(req, res, urlPath) {
@@ -226,11 +207,7 @@ async function serveStatic(req, res, urlPath) {
   if (!file.startsWith(SITE_ROOT + path.sep)) return send(res, 403, "Forbidden");
 
   let stat;
-  try {
-    stat = await fsp.stat(file);
-  } catch {
-    return send(res, 404, "Not found");
-  }
+  try { stat = await fsp.stat(file); } catch { return send(res, 404, "Not found"); }
   if (!stat.isFile()) return send(res, 404, "Not found");
 
   const etag = `"${stat.size}-${stat.mtimeMs.toString(36)}"`;
@@ -250,25 +227,12 @@ async function serveStatic(req, res, urlPath) {
 }
 
 /* ==========================================================================
-   Login page
+   Auth pages
    ========================================================================== */
 
-function loginPage({ error = "", locked = false } = {}) {
-  const msg = locked
-    ? `<p class="err">Too many attempts. Try again in ${CONFIG.loginWindowMin} minutes.</p>`
-    : error
-      ? `<p class="err">${error}</p>`
-      : "";
-
-  return `<!DOCTYPE html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cram</title>
-<meta name="color-scheme" content="light dark">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
-<style>
+const AUTH_CSS = `
   :root{--bg:#f6f7fb;--surface:#fff;--surface-2:#f0f1f6;--text:#12141c;--dim:#5b6072;
-        --border:#e2e4ed;--accent:#6366f1;--danger:#dc2626}
+        --border:#e2e4ed;--accent:#6366f1;--accent2:#8b5cf6;--danger:#dc2626}
   @media (prefers-color-scheme:dark){
     :root{--bg:#0c0d12;--surface:#14161e;--surface-2:#1b1e28;--text:#eceef5;--dim:#a2a8bd;
           --border:#242733;--danger:#f87171}
@@ -276,38 +240,80 @@ function loginPage({ error = "", locked = false } = {}) {
   *{box-sizing:border-box}
   body{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--text);
        font:15px/1.55 "Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
-  .card{width:100%;max-width:352px;background:var(--surface);border:1px solid var(--border);
+  .card{width:100%;max-width:368px;background:var(--surface);border:1px solid var(--border);
         border-radius:16px;padding:26px;box-shadow:0 8px 30px rgba(10,12,20,.10)}
   .mark{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;
-        background:linear-gradient(135deg,var(--accent),#8b5cf6);font-size:21px;margin-bottom:14px}
+        background:linear-gradient(135deg,var(--accent),var(--accent2));font-size:21px;margin-bottom:14px}
   h1{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
   p.sub{margin:0 0 20px;color:var(--dim);font-size:13px}
-  label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+  label{display:block;font-size:12.5px;font-weight:600;margin:0 0 6px}
+  .f{margin-bottom:13px}
   input{width:100%;padding:10px 12px;font:inherit;background:var(--surface-2);color:var(--text);
         border:1px solid var(--border);border-radius:10px;outline:none}
   input:focus{border-color:var(--accent)}
-  button{width:100%;margin-top:14px;padding:10px;font:inherit;font-weight:600;cursor:pointer;
-         background:linear-gradient(135deg,var(--accent),#8b5cf6);color:#fff;border:0;border-radius:10px}
+  button{width:100%;margin-top:4px;padding:10px;font:inherit;font-weight:600;cursor:pointer;
+         background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0;border-radius:10px}
   button:hover{filter:brightness(1.08)}
-  .err{margin:14px 0 0;color:var(--danger);font-size:12.5px}
-  .foot{margin:18px 0 0;color:var(--dim);font-size:11.5px;text-align:center}
-</style></head>
+  .err{margin:13px 0 0;color:var(--danger);font-size:12.5px}
+  .alt{margin:18px 0 0;color:var(--dim);font-size:12.5px;text-align:center}
+  .alt a{color:var(--accent)}
+  .hint{color:var(--dim);font-size:11.5px;margin:5px 0 0}`;
+
+function authPage({ mode, error = "", email = "", notice = "" }) {
+  const signup = mode === "signup";
+  const title = signup ? "Create your account" : "Welcome back";
+  const sub = signup ? "Email and password — that's all we need." : "Sign in to your Cram workspace.";
+
+  const errBlock = error ? `<p class="err">${escapeHtml(error)}</p>` : "";
+  const noticeBlock = notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
+
+  const alt = signup
+    ? `<p class="alt">Already have an account? <a href="/login">Sign in</a></p>`
+    : (CONFIG.allowSignup
+        ? `<p class="alt">No account yet? <a href="/signup">Create one</a></p>`
+        : `<p class="alt">Signups are closed.</p>`);
+
+  return `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${signup ? "Sign up" : "Sign in"} · Cram</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+<style>${AUTH_CSS}</style></head>
 <body>
-  <form class="card" method="POST" action="/login">
+  <form class="card" method="POST" action="${signup ? "/signup" : "/login"}">
     <div class="mark">🎓</div>
-    <h1>Cram</h1>
-    <p class="sub">This site is private. Enter the access password.</p>
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
-    <button type="submit">Unlock</button>
-    ${msg}
-    <p class="foot">Sessions last ${CONFIG.sessionHours}h.</p>
+    <h1>${title}</h1>
+    <p class="sub">${sub}</p>
+
+    <div class="f">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email"
+             value="${escapeHtml(email)}" required autofocus>
+    </div>
+
+    <div class="f">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="${signup ? "new-password" : "current-password"}" required>
+      ${signup ? '<p class="hint">At least 8 characters.</p>' : ""}
+    </div>
+
+    ${signup ? `<div class="f">
+      <label for="confirm">Confirm password</label>
+      <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
+    </div>` : ""}
+
+    <button type="submit">${signup ? "Create account" : "Sign in"}</button>
+    ${errBlock}
+    ${noticeBlock}
+    ${alt}
   </form>
 </body></html>`;
 }
 
 /* ==========================================================================
-   Model proxy — the key never leaves this process
+   Optional model proxy
    ========================================================================== */
 
 const PROXY_ROUTES = {
@@ -332,35 +338,31 @@ const PROXY_ROUTES = {
   }),
 };
 
-async function proxy(req, res, route) {
+async function proxy(req, res, route, user) {
   const spec = PROXY_ROUTES[route]();
   if (!spec.key) {
     return json(res, 503, {
-      error: { type: "not_configured", message: `${spec.name} is not set in server/.env` },
+      error: {
+        type: "not_configured",
+        message:
+          `This server has no ${spec.name} set, so its shared endpoint is off. ` +
+          `Add your own API key under Settings → Model → Connections.`,
+      },
     });
   }
 
   let body;
-  try {
-    body = await readBody(req);
-  } catch {
-    return json(res, 413, { error: { type: "too_large", message: "Request body too large" } });
-  }
+  try { body = await readBody(req); }
+  catch { return json(res, 413, { error: { type: "too_large", message: "Request body too large" } }); }
 
-  /* In managed mode the client does not get to choose the model or how many
-     tokens it may burn — whatever it asked for is overwritten here, server-side,
-     before the request reaches the provider. */
-  if (CONFIG.managed) {
-    let parsed;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } });
-    }
+  /* The operator's key is paying for this, so the operator sets the limits. */
+  try {
+    const parsed = JSON.parse(body);
     if (CONFIG.forceModel) parsed.model = CONFIG.forceModel;
-    const asked = Number(parsed.max_tokens) || CONFIG.maxTokensCap;
-    parsed.max_tokens = Math.min(asked, CONFIG.maxTokensCap);
+    parsed.max_tokens = Math.min(Number(parsed.max_tokens) || CONFIG.maxTokensCap, CONFIG.maxTokensCap);
     body = JSON.stringify(parsed);
+  } catch {
+    return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } });
   }
 
   let upstream;
@@ -370,19 +372,18 @@ async function proxy(req, res, route) {
     return json(res, 502, { error: { type: "upstream_unreachable", message: err.message } });
   }
 
+  console.log(`proxy ${route} for ${user.email} -> ${upstream.status}`);
+
   res.writeHead(upstream.status, {
     "content-type": upstream.headers.get("content-type") || "application/json",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
   });
-
   if (!upstream.body) return res.end();
 
   try {
     for await (const chunk of upstream.body) {
-      if (!res.write(Buffer.from(chunk))) {
-        await new Promise((r) => res.once("drain", r));
-      }
+      if (!res.write(Buffer.from(chunk))) await new Promise((r) => res.once("drain", r));
     }
   } catch (err) {
     console.error("proxy stream error:", err.message);
@@ -398,53 +399,97 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const urlPath = decodeURIComponent(url.pathname);
   const cookies = parseCookies(req.headers.cookie);
-  const authed = validSession(cookies.sp_session);
+  const user = sessionUser(cookies[COOKIE]);
   const ip = clientIp(req);
 
   const cookieAttrs = [
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
+    "Path=/", "HttpOnly", "SameSite=Lax",
     CONFIG.secureCookie ? "Secure" : "",
-    `Max-Age=${CONFIG.sessionHours * 3600}`,
+    `Max-Age=${CONFIG.sessionDays * 86_400}`,
   ].filter(Boolean).join("; ");
 
-  /* ---- health (unauthenticated, no secrets) ---- */
+  const startSession = (u, location = "/") =>
+    send(res, 302, "", { location, "set-cookie": `${COOKIE}=${issueSession(u.id)}; ${cookieAttrs}` });
+
+  /* ---- unauthenticated ---- */
+
   if (urlPath === "/healthz") {
     return json(res, 200, {
       ok: true,
-      anthropic: Boolean(CONFIG.anthropicKey),
-      openai: Boolean(CONFIG.openaiKey),
+      users: userCount(),
+      signup: CONFIG.allowSignup,
+      sharedEndpoint: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
     });
   }
 
-  /* ---- login ---- */
   if (urlPath === "/login") {
     if (req.method === "GET") {
-      if (authed) return send(res, 302, "", { location: "/" });
-      return send(res, 200, loginPage(), { "content-type": "text/html; charset=utf-8" });
+      return user ? send(res, 302, "", { location: "/" }) : html(res, 200, authPage({ mode: "login" }));
     }
     if (req.method === "POST") {
       if (throttled(ip)) {
-        console.warn(`login throttled for ${ip}`);
-        return send(res, 429, loginPage({ locked: true }), { "content-type": "text/html; charset=utf-8" });
+        return html(res, 429, authPage({
+          mode: "login",
+          error: `Too many attempts. Try again in ${CONFIG.authWindowMin} minutes.`,
+        }));
       }
       let form;
-      try {
-        form = new URLSearchParams(await readBody(req, 4096));
-      } catch {
-        return send(res, 400, "Bad request");
-      }
-      if (verifyPassword(form.get("password") ?? "")) {
+      try { form = new URLSearchParams(await readBody(req, 8192)); }
+      catch { return send(res, 400, "Bad request"); }
+
+      const email = form.get("email") ?? "";
+      const found = verifyUser(email, form.get("password") ?? "");
+      if (found) {
         attempts.delete(ip);
-        console.log(`login ok from ${ip}`);
-        return send(res, 302, "", { location: "/", "set-cookie": `sp_session=${issueSession()}; ${cookieAttrs}` });
+        noteLogin(found.id);
+        console.log(`login ok: ${found.email} from ${ip}`);
+        return startSession(found);
       }
       noteFailure(ip);
-      console.warn(`login failed from ${ip}`);
-      return send(res, 401, loginPage({ error: "Wrong password." }), {
-        "content-type": "text/html; charset=utf-8",
-      });
+      console.warn(`login failed: ${email} from ${ip}`);
+      return html(res, 401, authPage({
+        mode: "login", email, error: "Wrong email or password.",
+      }));
+    }
+    return send(res, 405, "Method not allowed");
+  }
+
+  if (urlPath === "/signup") {
+    if (!CONFIG.allowSignup) {
+      return html(res, 403, authPage({ mode: "login", error: "Signups are closed on this server." }));
+    }
+    if (req.method === "GET") {
+      return user ? send(res, 302, "", { location: "/" }) : html(res, 200, authPage({ mode: "signup" }));
+    }
+    if (req.method === "POST") {
+      if (throttled(ip)) {
+        return html(res, 429, authPage({
+          mode: "signup",
+          error: `Too many attempts. Try again in ${CONFIG.authWindowMin} minutes.`,
+        }));
+      }
+      let form;
+      try { form = new URLSearchParams(await readBody(req, 8192)); }
+      catch { return send(res, 400, "Bad request"); }
+
+      const email = form.get("email") ?? "";
+      const password = form.get("password") ?? "";
+      const confirm = form.get("confirm") ?? "";
+
+      if (password !== confirm) {
+        return html(res, 400, authPage({ mode: "signup", email, error: "The two passwords don't match." }));
+      }
+
+      const result = createUser(email, password);
+      if (!result.ok) {
+        noteFailure(ip);
+        return html(res, 400, authPage({ mode: "signup", email, error: result.error }));
+      }
+
+      attempts.delete(ip);
+      noteLogin(result.user.id);
+      console.log(`signup: ${result.user.email} from ${ip}`);
+      return startSession(result.user);
     }
     return send(res, 405, "Method not allowed");
   }
@@ -452,32 +497,35 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === "/logout") {
     return send(res, 302, "", {
       location: "/login",
-      "set-cookie": `sp_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+      "set-cookie": `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
     });
   }
 
   /* ---- everything below requires a session ---- */
-  if (!authed) {
+
+  if (!user) {
     if (urlPath.startsWith("/api/")) {
-      return json(res, 401, { error: { type: "unauthenticated", message: "Log in first." } });
+      return json(res, 401, { error: { type: "unauthenticated", message: "Sign in first." } });
     }
     return send(res, 302, "", { location: "/login" });
   }
 
-  /* what the frontend is allowed to do — no secrets, session required */
   if (urlPath === "/api/config") {
     return json(res, 200, {
-      managed: CONFIG.managed,
-      provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : "",
-      model: CONFIG.forceModel,
-      maxTokens: CONFIG.maxTokensCap,
-      configured: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
+      user: { id: user.id, email: user.email },
+      sharedEndpoint: {
+        available: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
+        provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : "",
+        model: CONFIG.forceModel,
+        maxTokens: CONFIG.maxTokensCap,
+        url: "/api/v1",
+      },
     }, { "cache-control": "no-store" });
   }
 
   if (PROXY_ROUTES[urlPath]) {
     if (req.method !== "POST") return send(res, 405, "Method not allowed");
-    return proxy(req, res, urlPath);
+    return proxy(req, res, urlPath, user);
   }
   if (urlPath.startsWith("/api/")) return json(res, 404, { error: { type: "not_found" } });
 
@@ -487,9 +535,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`Cram listening on http://${CONFIG.host}:${CONFIG.port}`);
-  console.log(`  auth:      ${CONFIG.passwordHash ? "scrypt hash" : "PLAINTEXT password (set a hash instead)"}`);
-  console.log(`  anthropic: ${CONFIG.anthropicKey ? "key loaded" : "not configured"}`);
-  console.log(`  openai:    ${CONFIG.openaiKey ? "key loaded" : "not configured"}`);
+  console.log(`  accounts:        ${userCount()} registered, signup ${CONFIG.allowSignup ? "open" : "closed"}`);
+  console.log(`  shared endpoint: ${CONFIG.anthropicKey || CONFIG.openaiKey ? "on" : "off (users bring their own keys)"}`);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

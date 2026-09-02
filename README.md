@@ -92,17 +92,16 @@ tokens, history depth, stop sequences, streaming) and turn on **Live mode**.
 both the Anthropic (`/messages`) and OpenAI-compatible (`/chat/completions`) request
 shapes and parses SSE streams from either.
 
-### Self-hosting behind a password
+### Self-hosting with accounts
 
-`server/` is a zero-dependency Node server that does the two things a static host
-can't: **enforce access** and **hold a secret**.
+`server/` is a zero-dependency Node server that adds the two things a static host
+can't: **accounts** and **an optional server-held key**.
 
 ```bash
 git clone https://github.com/sauddarwish/StudentPilot.git /opt/cram
 cd /opt/cram/server
 cp .env.example .env
-node set-password.js          # prints a password, stores only its scrypt hash
-$EDITOR .env                  # add ANTHROPIC_API_KEY
+$EDITOR .env                  # set SESSION_SECRET (required)
 sudo cp cram.service /etc/systemd/system/
 sudo systemctl enable --now cram
 ```
@@ -110,22 +109,35 @@ sudo systemctl enable --now cram
 Then put nginx in front of `127.0.0.1:$PORT` with `proxy_buffering off` (streaming
 breaks without it) and run `certbot --nginx`.
 
+**Accounts.** Users sign up at `/signup` with an email and password — no
+verification code. Accounts live in `server/users.json` (mode 600) with passwords
+stored as scrypt hashes; a missing email and a wrong password take the same time to
+reject, so the endpoint doesn't leak which addresses are registered. Set
+`ALLOW_SIGNUP=false` to close registration; existing accounts keep working. Seed or
+add accounts from the CLI:
+
+```bash
+node add-user.js someone@example.com     # generates and prints a password
+node add-user.js --list
+```
+
 **The gate is server-side.** A request without a valid session never receives
 `index.html`, the JS or the CSS — it gets a 302 to `/login`, and `/api/*` gets a 401.
-Sessions are HMAC-signed cookies (`HttpOnly; Secure; SameSite=Lax`), passwords are
-stored as a scrypt hash, and login is rate-limited per IP (8 attempts / 15 min,
-failing closed — a correct password is refused while locked). Static serving is
-allowlisted to `index.html` and `assets/`, so `server/.env`, `.git` and everything
-else return 404.
+Sessions are HMAC-signed cookies (`HttpOnly; Secure; SameSite=Lax`) carrying the
+user id, revalidated against the store on every request, so deleting an account
+kills its sessions immediately. Login and signup share a per-IP rate limit
+(10 attempts / 15 min). Static serving is allowlisted to `index.html` and `assets/`,
+so `server/.env`, `users.json` and `.git` all return 404.
 
-**The key stays on the server.** Point a connection's Base URL at
-`https://your-host/api/v1` and leave the key field empty. The browser posts to
-`/api/v1/messages` on your own origin; the server attaches `ANTHROPIC_API_KEY` from
-`.env` and streams the response straight back, so SSE still works and the key is
-never shipped to the client.
+**Keys stay with whoever owns them.** By default each user adds their own API key
+under Settings → Model → Connections; it lives in their browser and the Cram server
+never sees it. Optionally the operator can put a key in `.env` — then `/api/v1`
+becomes a shared endpoint that signed-in users can select with one click, with the
+key attached server-side and `FORCE_MODEL` / `MAX_TOKENS_CAP` applied as spend
+guards. Leave both key fields empty and that endpoint stays off.
 
-Rotate the password any time with `node set-password.js` followed by
-`sudo systemctl restart cram`.
+Settings, pilots and chats are kept per account in `localStorage`, so two people
+sharing a browser keep separate workspaces.
 
 ### About keys in the browser
 
@@ -157,6 +169,9 @@ assets/js/store.js    defaults, theme/layout presets, localStorage persistence
 assets/js/markdown.js small escape-first Markdown renderer
 assets/js/api.js      provider adapters + demo stream — swap this to change backends
 assets/js/app.js      rendering and event wiring
+server/server.js      accounts, session gating, optional model proxy
+server/users.js       JSON-file user store (scrypt hashes, atomic writes)
+server/add-user.js    CLI to create or list accounts
 ```
 
 ## License

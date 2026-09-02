@@ -4,7 +4,7 @@
 
 import {
   state, save, replaceState, resetState, uid, move,
-  ACCENTS, THEME_PRESETS, LAYOUT_PRESETS, FONT_STACKS, DEFAULTS, STORAGE_KEY,
+  ACCENTS, THEME_PRESETS, LAYOUT_PRESETS, FONT_STACKS, DEFAULTS, storageKey, useAccount,
   activeChat, pilotById, activeConnection, newChat, deleteChat, titleFrom,
 } from "./store.js";
 import { render as md } from "./markdown.js";
@@ -48,21 +48,21 @@ const dom = {
 let abortController = null;
 let streaming = false;
 
-/* Set when the page is served by the Cram server with MANAGED_MODE on. In that
-   case the endpoint and key belong to the server, so the client is not offered
-   a choice: connection editing is replaced by a read-only notice and every
-   request goes to /api/v1 on this origin. Served statically (Pages, file://,
-   python -m http.server) this stays null and the app behaves as before. */
-let managed = null;
+/* Set when the page is served by the Cram server and a session is active.
+   Served statically (Pages, file://, python -m http.server) there are no
+   accounts, this stays null, and the app works exactly as before. */
+let account = null;      // { id, email }
+let sharedEndpoint = null; // { available, provider, model, maxTokens, url }
 
 async function loadServerConfig() {
   try {
     const res = await fetch("/api/config", { credentials: "same-origin" });
     if (!res.ok) return;
     const cfg = await res.json();
-    if (cfg && cfg.managed) managed = cfg;
+    account = cfg?.user ?? null;
+    sharedEndpoint = cfg?.sharedEndpoint ?? null;
   } catch {
-    /* not served by the Cram server — stay in bring-your-own-key mode */
+    /* not served by the Cram server — no accounts, no shared endpoint */
   }
 }
 
@@ -377,21 +377,6 @@ function scrollToEnd(force = false) {
    ========================================================================== */
 
 function effectiveConfig(pilot) {
-  if (managed) {
-    return {
-      ...state.model,
-      live: true,
-      provider: managed.provider || "anthropic",
-      baseUrl: new URL("/api/v1", location.origin).href,
-      apiKey: "",
-      headers: [],
-      model: managed.model || pilot.model || "",
-      temperature: pilot.temperature ?? state.model.temperature,
-      maxTokens: Math.min(pilot.maxTokens ?? state.model.maxTokens, managed.maxTokens),
-      demoSpeed: state.behavior.demoSpeed,
-    };
-  }
-
   const conn = activeConnection();
   return {
     ...state.model,
@@ -874,36 +859,6 @@ function renderConnections() {
   const host = $("#connectionEditor");
   host.replaceChildren();
 
-  if (managed) {
-    const note = el("div", "callout");
-    note.append(
-      el("strong", null, "Managed by the server. "),
-      el("span", null,
-        managed.configured
-          ? "Requests go through this site's own endpoint, which holds the API key. " +
-            "You cannot point Cram somewhere else or supply your own key."
-          : "This site's endpoint has no API key set yet, so requests will fail until the " +
-            "administrator adds one."),
-    );
-    host.append(note);
-
-    const card = el("div", "card");
-    const rows = [
-      ["Endpoint", new URL("/api/v1", location.origin).href],
-      ["Provider", managed.provider || "not configured"],
-      ["Model", managed.model || "chosen per pilot"],
-      ["Max output tokens", `capped at ${managed.maxTokens}`],
-    ];
-    for (const [k, v] of rows) {
-      const row = el("div", "row");
-      row.style.justifyContent = "space-between";
-      row.append(el("span", "field__label", k), el("span", "field__help", v));
-      card.append(row);
-    }
-    host.append(card);
-    return;
-  }
-
   state.connections.forEach((c, idx) => {
     const card = el("div", "card");
     card.setAttribute("aria-current", String(c.id === state.activeConnectionId));
@@ -1042,28 +997,10 @@ function wireModel() {
     m.live = v; updateStatus(); toast(v ? "Live mode on" : "Back to demo mode");
   }, { event: "change", prop: "checked" });
 
-  if (managed) {
-    // the server owns the endpoint, the key and the on/off switch
-    $("#addConnBtn").hidden = true;
-    $("#setLive").closest(".switch").hidden = true;
-    document.querySelector('[data-panel="model"] .callout').hidden = true;
-    $("#setMaxTokens").max = String(managed.maxTokens);
-  }
-
   renderConnections();
 }
 
 function updateStatus() {
-  if (managed) {
-    dom.connBadge.textContent = managed.configured ? "live" : "no key";
-    dom.connBadge.className = `badge${managed.configured ? " badge--live" : ""}`;
-    $("#modeTag").textContent = managed.model || state.brand.tagline;
-    dom.modelHint.textContent = managed.configured
-      ? `managed · ${managed.model || "server default"}`
-      : "server has no API key";
-    return;
-  }
-
   const live = state.model.live;
   const conn = activeConnection();
   dom.connBadge.textContent = live ? "live" : "demo";
@@ -1313,7 +1250,7 @@ function pickFile(inputSel, onJson) {
 }
 
 function storageInfo() {
-  const bytes = new Blob([localStorage.getItem(STORAGE_KEY) || ""]).size;
+  const bytes = new Blob([localStorage.getItem(storageKey()) || ""]).size;
   $("#storageInfo").textContent =
     `${state.chats.length} chats · ${state.pilots.length} pilots · ${state.prompts.length} prompts · ` +
     `${state.connections.length} connections · ${(bytes / 1024).toFixed(1)} KB used`;
@@ -1376,6 +1313,15 @@ function toast(text) {
   toastTimer = setTimeout(() => { dom.toast.dataset.show = "false"; }, 1900);
 }
 
+function renderAccount() {
+  const row = $("#accountRow");
+  if (!account) { row.hidden = true; return; }
+  row.hidden = false;
+  $("#accountAvatar").textContent = account.email.slice(0, 2);
+  $("#accountEmail").textContent = account.email;
+  $("#accountEmail").title = account.email;
+}
+
 function refreshHeader() {
   dom.activePilotName.textContent = pilotById(activeChat()?.pilotId ?? state.activePilotId).name;
 }
@@ -1428,6 +1374,7 @@ function syncVariantInputs() {
 }
 
 function renderAll() {
+  renderAccount();
   renderPilots();
   renderChatList();
   renderTranscript();
@@ -1491,6 +1438,25 @@ function wireEvents() {
     save(); renderPromptEditor();
   };
 
+  const useShared = $("#useSharedBtn");
+  useShared.hidden = !(sharedEndpoint && sharedEndpoint.available);
+  useShared.onclick = () => {
+    state.connections.push({
+      id: uid(),
+      label: "This server's key",
+      provider: sharedEndpoint.provider || "anthropic",
+      baseUrl: new URL(sharedEndpoint.url, location.origin).href,
+      model: sharedEndpoint.model || "",
+      apiKey: "",
+      headers: [],
+    });
+    state.activeConnectionId = state.connections.at(-1).id;
+    state.model.live = true;
+    $("#setLive").checked = true;
+    save(); renderConnections(); updateStatus();
+    toast("Added the server's shared endpoint");
+  };
+
   $("#addConnBtn").onclick = () => {
     state.connections.push({
       id: uid(), label: "New connection", provider: "openai",
@@ -1540,6 +1506,7 @@ function wireEvents() {
 
 async function boot() {
   await loadServerConfig();
+  if (account) useAccount(account.id);
   applyAppearance();
   applyBrand();
   wireTheme();

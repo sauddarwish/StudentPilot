@@ -286,17 +286,28 @@ function merge(base, saved) {
 }
 
 /* the app was called StudentPilot before; carry those settings over once */
-const LEGACY_KEY = "studentpilot.v1";
+const LEGACY_KEYS = ["studentpilot.v1", STORAGE_KEY];
 
-export function load() {
+/* When the server reports a signed-in account, settings and chats are kept
+   under a per-account key. Two people sharing a browser then keep separate
+   workspaces instead of overwriting each other. Served statically there is no
+   account, and everything lives under the plain key as before. */
+let activeKey = STORAGE_KEY;
+
+export function load(key = activeKey) {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(key);
     if (!raw) {
-      const legacy = localStorage.getItem(LEGACY_KEY);
-      if (legacy) {
-        localStorage.setItem(STORAGE_KEY, legacy);
-        localStorage.removeItem(LEGACY_KEY);
-        raw = legacy;
+      // first run for this account: adopt anything left by an earlier install
+      for (const legacy of LEGACY_KEYS) {
+        if (legacy === key) continue;
+        const found = localStorage.getItem(legacy);
+        if (found) {
+          localStorage.setItem(key, found);
+          localStorage.removeItem(legacy);
+          raw = found;
+          break;
+        }
       }
     }
     if (!raw) return structuredClone(DEFAULTS);
@@ -308,12 +319,23 @@ export function load() {
 
 export const state = load();
 
+/** The localStorage key currently in use. */
+export const storageKey = () => activeKey;
+
+/** Re-point the store at a specific account, then reload it in place. */
+export function useAccount(accountId) {
+  activeKey = accountId ? `${STORAGE_KEY}:${accountId}` : STORAGE_KEY;
+  const loaded = load(activeKey);
+  for (const k of Object.keys(state)) delete state[k];
+  Object.assign(state, loaded);
+}
+
 let saveTimer = null;
 export function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(activeKey, JSON.stringify(state));
     } catch (err) {
       console.warn("Cram: could not save state", err);
     }
