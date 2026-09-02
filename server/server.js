@@ -64,6 +64,11 @@ const CONFIG = {
   maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 256 * 1024),
   loginMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 8),
   loginWindowMin: Number(process.env.LOGIN_WINDOW_MIN || 15),
+
+  // managed mode: the client may not bring its own endpoint, key or limits
+  managed: (process.env.MANAGED_MODE ?? "true") !== "false",
+  forceModel: process.env.FORCE_MODEL || "",
+  maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 4096),
 };
 
 if (!CONFIG.sessionSecret) {
@@ -342,6 +347,22 @@ async function proxy(req, res, route) {
     return json(res, 413, { error: { type: "too_large", message: "Request body too large" } });
   }
 
+  /* In managed mode the client does not get to choose the model or how many
+     tokens it may burn — whatever it asked for is overwritten here, server-side,
+     before the request reaches the provider. */
+  if (CONFIG.managed) {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } });
+    }
+    if (CONFIG.forceModel) parsed.model = CONFIG.forceModel;
+    const asked = Number(parsed.max_tokens) || CONFIG.maxTokensCap;
+    parsed.max_tokens = Math.min(asked, CONFIG.maxTokensCap);
+    body = JSON.stringify(parsed);
+  }
+
   let upstream;
   try {
     upstream = await fetch(spec.url, { method: "POST", headers: spec.headers(spec.key), body });
@@ -441,6 +462,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 401, { error: { type: "unauthenticated", message: "Log in first." } });
     }
     return send(res, 302, "", { location: "/login" });
+  }
+
+  /* what the frontend is allowed to do — no secrets, session required */
+  if (urlPath === "/api/config") {
+    return json(res, 200, {
+      managed: CONFIG.managed,
+      provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : "",
+      model: CONFIG.forceModel,
+      maxTokens: CONFIG.maxTokensCap,
+      configured: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
+    }, { "cache-control": "no-store" });
   }
 
   if (PROXY_ROUTES[urlPath]) {
