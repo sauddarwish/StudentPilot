@@ -166,6 +166,31 @@ that key only.
 Settings, pilots and chats are kept per account in `localStorage`, so two people
 sharing a browser keep separate workspaces.
 
+### Input handling
+
+There is no SQL anywhere in Cram — the user store is a JSON file — so there is no
+query language to inject into. What the server does enforce:
+
+- **Static paths** are collapsed with `path.posix.normalize` *before* the
+  `index.html` / `assets/` allowlist is applied, so `..` and its percent-encoded
+  forms resolve to a path the allowlist doesn't match. A resolve-and-contain check
+  under the site root runs as a second layer.
+- **JSON endpoints** require an actual JSON object — arrays, strings, numbers and
+  `null` are refused — and read each field as a length-capped string, so an
+  object-valued field can't be smuggled through where a string is expected.
+- **Config import** drops `__proto__`, `constructor` and `prototype` keys and bounds
+  merge depth, so an imported file can't reshape the state object's prototype.
+- **Provider names** are matched against an allowlist before they are ever used as
+  an object index.
+- **Model output** is HTML-escaped before any Markdown rendering, and links are
+  restricted to `http(s)`, so nothing a model returns becomes markup.
+- **Logged values** have control characters stripped and are length-capped, so a
+  crafted email can't forge log entries.
+- **Bodies** are size-capped (256 KB for chat, 16 KB for forms) and answered with 413.
+- **Responses** carry a CSP whose `connect-src 'self'` means the page cannot reach a
+  provider directly even if its code tried, plus `frame-ancestors 'none'`,
+  `nosniff`, `X-Frame-Options: DENY` and a restrictive `Permissions-Policy`.
+
 ### About keys in the browser
 
 The API-key field exists for local experiments, and it never leaves your browser —
