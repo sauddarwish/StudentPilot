@@ -24,7 +24,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   createUser, verifyUser, findById, noteLogin, count as userCount,
+  changePassword, saveApiKey, deleteApiKey, listApiKeys, getApiKey,
 } from "./users.js";
+import { initMasterKey, canEncrypt, generateKey } from "./secretbox.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = path.resolve(HERE, "..");
@@ -67,6 +69,8 @@ const CONFIG = {
   forceModel: process.env.FORCE_MODEL || "",
   maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 8192),
 
+  encryptionKey: process.env.ENCRYPTION_KEY || "",
+
   maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 256 * 1024),
   authMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 10),
   authWindowMin: Number(process.env.LOGIN_WINDOW_MIN || 15),
@@ -74,6 +78,12 @@ const CONFIG = {
 
 if (!CONFIG.sessionSecret) {
   console.error("FATAL: SESSION_SECRET is not set in server/.env");
+  process.exit(1);
+}
+
+if (CONFIG.encryptionKey && !initMasterKey(CONFIG.encryptionKey)) {
+  console.error("FATAL: ENCRYPTION_KEY must be 32 bytes, base64 or hex encoded.");
+  console.error(`       Generate one with:  ENCRYPTION_KEY=${generateKey()}`);
   process.exit(1);
 }
 
@@ -340,13 +350,21 @@ const PROXY_ROUTES = {
 
 async function proxy(req, res, route, user) {
   const spec = PROXY_ROUTES[route]();
-  if (!spec.key) {
+
+  /* Prefer the user's own saved key (encrypted at rest, decrypted here only for
+     the duration of their request). Fall back to the operator's shared key. */
+  const providerName = route.includes("messages") ? "anthropic" : "openai";
+  const ownKey = canEncrypt() ? getApiKey(user.id, providerName) : null;
+  const usingOwnKey = Boolean(ownKey);
+  const key = ownKey || spec.key;
+
+  if (!key) {
     return json(res, 503, {
       error: {
         type: "not_configured",
         message:
-          `This server has no ${spec.name} set, so its shared endpoint is off. ` +
-          `Add your own API key under Settings → Model → Connections.`,
+          `No ${spec.name} available. Save your own key under Settings → Model, ` +
+          `or ask the operator to configure a shared one.`,
       },
     });
   }
@@ -355,24 +373,27 @@ async function proxy(req, res, route, user) {
   try { body = await readBody(req); }
   catch { return json(res, 413, { error: { type: "too_large", message: "Request body too large" } }); }
 
-  /* The operator's key is paying for this, so the operator sets the limits. */
-  try {
-    const parsed = JSON.parse(body);
-    if (CONFIG.forceModel) parsed.model = CONFIG.forceModel;
-    parsed.max_tokens = Math.min(Number(parsed.max_tokens) || CONFIG.maxTokensCap, CONFIG.maxTokensCap);
-    body = JSON.stringify(parsed);
-  } catch {
-    return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } });
+  /* Spend guards apply only when the operator's key is footing the bill. A user
+     spending their own key is not restricted. */
+  if (!usingOwnKey) {
+    try {
+      const parsed = JSON.parse(body);
+      if (CONFIG.forceModel) parsed.model = CONFIG.forceModel;
+      parsed.max_tokens = Math.min(Number(parsed.max_tokens) || CONFIG.maxTokensCap, CONFIG.maxTokensCap);
+      body = JSON.stringify(parsed);
+    } catch {
+      return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } });
+    }
   }
 
   let upstream;
   try {
-    upstream = await fetch(spec.url, { method: "POST", headers: spec.headers(spec.key), body });
+    upstream = await fetch(spec.url, { method: "POST", headers: spec.headers(key), body });
   } catch (err) {
     return json(res, 502, { error: { type: "upstream_unreachable", message: err.message } });
   }
 
-  console.log(`proxy ${route} for ${user.email} -> ${upstream.status}`);
+  console.log(`proxy ${route} for ${user.email} (${usingOwnKey ? "own key" : "shared key"}) -> ${upstream.status}`);
 
   res.writeHead(upstream.status, {
     "content-type": upstream.headers.get("content-type") || "application/json",
@@ -510,9 +531,47 @@ const server = http.createServer(async (req, res) => {
     return send(res, 302, "", { location: "/login" });
   }
 
+  /* ---- saved API keys (encrypted at rest; never returned in full) ---- */
+  if (urlPath === "/api/keys") {
+    if (req.method === "GET") return json(res, 200, { keys: listApiKeys(user.id) });
+
+    if (req.method === "POST") {
+      let payload;
+      try { payload = JSON.parse(await readBody(req, 8192)); }
+      catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } }); }
+
+      if (payload.delete) {
+        const removed = deleteApiKey(user.id, payload.provider);
+        console.log(`key ${removed ? "deleted" : "delete-miss"} (${payload.provider}) for ${user.email}`);
+        return json(res, 200, { ok: removed, keys: listApiKeys(user.id) });
+      }
+
+      const result = saveApiKey(user.id, payload.provider, payload.key);
+      if (!result.ok) return json(res, 400, { error: { type: "invalid", message: result.error } });
+      console.log(`key saved (${payload.provider}) for ${user.email}`);
+      return json(res, 200, { ok: true, keys: listApiKeys(user.id) });
+    }
+    return send(res, 405, "Method not allowed");
+  }
+
+  /* ---- change password ---- */
+  if (urlPath === "/api/password" && req.method === "POST") {
+    let payload;
+    try { payload = JSON.parse(await readBody(req, 8192)); }
+    catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } }); }
+
+    const result = changePassword(user.id, payload.current ?? "", payload.next ?? "");
+    if (!result.ok) return json(res, 400, { error: { type: "invalid", message: result.error } });
+    console.log(`password changed for ${user.email}`);
+    // re-issue so the current browser stays signed in
+    return json(res, 200, { ok: true }, { "set-cookie": `${COOKIE}=${issueSession(user.id)}; ${cookieAttrs}` });
+  }
+
   if (urlPath === "/api/config") {
     return json(res, 200, {
       user: { id: user.id, email: user.email },
+      encryption: canEncrypt(),
+      savedKeys: canEncrypt() ? listApiKeys(user.id) : {},
       sharedEndpoint: {
         available: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
         provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : "",
@@ -537,6 +596,7 @@ server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`Cram listening on http://${CONFIG.host}:${CONFIG.port}`);
   console.log(`  accounts:        ${userCount()} registered, signup ${CONFIG.allowSignup ? "open" : "closed"}`);
   console.log(`  shared endpoint: ${CONFIG.anthropicKey || CONFIG.openaiKey ? "on" : "off (users bring their own keys)"}`);
+  console.log(`  key encryption:  ${canEncrypt() ? "on (AES-256-GCM)" : "OFF — set ENCRYPTION_KEY to let users store keys"}`);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

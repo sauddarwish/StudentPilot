@@ -51,8 +51,10 @@ let streaming = false;
 /* Set when the page is served by the Cram server and a session is active.
    Served statically (Pages, file://, python -m http.server) there are no
    accounts, this stays null, and the app works exactly as before. */
-let account = null;      // { id, email }
+let account = null;        // { id, email }
 let sharedEndpoint = null; // { available, provider, model, maxTokens, url }
+let encryptionOn = false;  // server can encrypt stored keys
+let savedKeys = {};        // { anthropic: { hint, savedAt }, … } — masked only
 
 async function loadServerConfig() {
   try {
@@ -61,6 +63,8 @@ async function loadServerConfig() {
     const cfg = await res.json();
     account = cfg?.user ?? null;
     sharedEndpoint = cfg?.sharedEndpoint ?? null;
+    encryptionOn = Boolean(cfg?.encryption);
+    savedKeys = cfg?.savedKeys ?? {};
   } catch {
     /* not served by the Cram server — no accounts, no shared endpoint */
   }
@@ -1313,6 +1317,115 @@ function toast(text) {
   toastTimer = setTimeout(() => { dom.toast.dataset.show = "false"; }, 1900);
 }
 
+const PROVIDER_LABEL = { anthropic: "Anthropic", openai: "OpenAI" };
+
+async function postJson(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error?.message || `${res.status} ${res.statusText}`);
+  return data;
+}
+
+function renderKeyVault() {
+  const host = $("#keyVault");
+  host.replaceChildren();
+
+  if (!encryptionOn) {
+    const warn = el("div", "callout callout--warn",
+      "This server has no ENCRYPTION_KEY set, so keys cannot be stored here. " +
+      "Use Settings → Model to keep a key in this browser instead.");
+    host.append(warn);
+    $("#keySaveBtn").disabled = true;
+    return;
+  }
+
+  const entries = Object.entries(savedKeys);
+  if (!entries.length) {
+    host.append(el("div", "empty-note", "No keys stored yet."));
+    return;
+  }
+
+  for (const [provider, rec] of entries) {
+    const card = el("div", "card");
+    const head = el("div", "card__head");
+    head.append(
+      el("div", "card__name", PROVIDER_LABEL[provider] || provider),
+      el("span", "field__help", rec.hint),
+    );
+
+    const del = el("button", "btn btn--sm btn--danger", "Delete");
+    del.type = "button";
+    del.onclick = async () => {
+      if (!confirm(`Delete your stored ${PROVIDER_LABEL[provider] || provider} key?`)) return;
+      try {
+        const out = await postJson("/api/keys", { provider, delete: true });
+        savedKeys = out.keys ?? {};
+        renderKeyVault(); renderConnections();
+        toast("Key deleted");
+      } catch (err) { toast(err.message); }
+    };
+    head.append(del);
+    card.append(head);
+
+    const when = el("div", "field__help",
+      `stored ${new Date(rec.savedAt).toLocaleDateString()} · encrypted at rest`);
+    when.style.marginTop = "6px";
+    card.append(when);
+    host.append(card);
+  }
+}
+
+function wireAccountPanel() {
+  document.querySelector('[data-tab="account"]').hidden = !account;
+  if (!account) return;
+
+  $("#acctEmail").textContent = account.email;
+
+  $("#pwSaveBtn").onclick = async () => {
+    const current = $("#pwCurrent").value;
+    const next = $("#pwNew").value;
+    const confirmed = $("#pwConfirm").value;
+    const status = $("#pwStatus");
+
+    if (next !== confirmed) { status.textContent = "The two new passwords don't match."; return; }
+    status.textContent = "Working…";
+    try {
+      await postJson("/api/password", { current, next });
+      $("#pwCurrent").value = $("#pwNew").value = $("#pwConfirm").value = "";
+      status.textContent = "Password updated.";
+      toast("Password updated");
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  };
+
+  $("#keySaveBtn").onclick = async () => {
+    const provider = $("#keyProvider").value;
+    const key = $("#keyValue").value.trim();
+    const status = $("#keyStatus");
+    if (!key) { status.textContent = "Paste a key first."; return; }
+
+    status.textContent = "Encrypting…";
+    try {
+      const out = await postJson("/api/keys", { provider, key });
+      savedKeys = out.keys ?? {};
+      $("#keyValue").value = "";
+      status.textContent = "Stored, encrypted. Add a connection pointing at this server to use it.";
+      renderKeyVault(); renderConnections();
+      toast("Key encrypted and stored");
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  };
+
+  renderKeyVault();
+}
+
 function renderAccount() {
   const row = $("#accountRow");
   if (!account) { row.hidden = true; return; }
@@ -1439,14 +1552,17 @@ function wireEvents() {
   };
 
   const useShared = $("#useSharedBtn");
-  useShared.hidden = !(sharedEndpoint && sharedEndpoint.available);
+  const hasStoredKey = Object.keys(savedKeys).length > 0;
+  useShared.hidden = !((sharedEndpoint && sharedEndpoint.available) || hasStoredKey);
+  useShared.textContent = hasStoredKey ? "Use my stored key" : "Use this server's key";
   useShared.onclick = () => {
+    const provider = Object.keys(savedKeys)[0] || sharedEndpoint?.provider || "anthropic";
     state.connections.push({
       id: uid(),
-      label: "This server's key",
-      provider: sharedEndpoint.provider || "anthropic",
-      baseUrl: new URL(sharedEndpoint.url, location.origin).href,
-      model: sharedEndpoint.model || "",
+      label: Object.keys(savedKeys).length ? "My stored key" : "This server's key",
+      provider,
+      baseUrl: new URL("/api/v1", location.origin).href,
+      model: sharedEndpoint?.model || "",
       apiKey: "",
       headers: [],
     });
@@ -1517,6 +1633,7 @@ async function boot() {
   wireModel();
   wireAdvanced();
   wireData();
+  wireAccountPanel();
   wireEvents();
   renderPilotEditor();
   renderPromptEditor();

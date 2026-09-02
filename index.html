@@ -118,6 +118,7 @@
     <button class="tab" role="tab" data-tab="pilots"   aria-selected="false">Pilots</button>
     <button class="tab" role="tab" data-tab="prompts"  aria-selected="false">Prompts</button>
     <button class="tab" role="tab" data-tab="advanced" aria-selected="false">Advanced</button>
+    <button class="tab" role="tab" data-tab="account"  aria-selected="false" hidden>Account</button>
     <button class="tab" role="tab" data-tab="data"     aria-selected="false">Data</button>
   </div>
 
@@ -499,6 +500,55 @@
 
       <div class="section-title">Current token values</div>
       <div class="field"><span class="field__help" id="tokenDump"></span></div>
+    </section>
+
+    <!-- ---------------- Account ---------------- -->
+    <section class="panel" data-panel="account">
+      <div class="section-title">Signed in as</div>
+      <div class="field"><span class="field__help" id="acctEmail"></span></div>
+
+      <div class="section-title">Change password</div>
+      <div class="field">
+        <label class="field__label" for="pwCurrent">Current password</label>
+        <input class="input" id="pwCurrent" type="password" autocomplete="current-password">
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="pwNew">New password</label>
+          <input class="input" id="pwNew" type="password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label class="field__label" for="pwConfirm">Confirm</label>
+          <input class="input" id="pwConfirm" type="password" autocomplete="new-password">
+        </div>
+      </div>
+      <button class="btn btn--full" id="pwSaveBtn">Update password</button>
+      <div class="field" style="margin-top:8px"><span class="field__help" id="pwStatus"></span></div>
+
+      <div class="section-title">Stored API keys</div>
+      <div class="callout" id="keyVaultNote">
+        Keys saved here are encrypted on the server with AES-256-GCM and only decrypted
+        while your own request is in flight. Requests then go through this site rather
+        than straight from your browser. The alternative — a key typed into
+        <strong>Settings → Model</strong> — never leaves your browser but sits in plain
+        <code>localStorage</code>.
+      </div>
+      <div id="keyVault"></div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="keyProvider">Provider</label>
+          <select class="select" id="keyProvider">
+            <option value="anthropic">Anthropic</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="keyValue">API key</label>
+          <input class="input" id="keyValue" type="password" placeholder="sk-…" spellcheck="false">
+        </div>
+      </div>
+      <button class="btn btn--full" id="keySaveBtn">Encrypt &amp; store on the server</button>
+      <div class="field" style="margin-top:8px"><span class="field__help" id="keyStatus"></span></div>
     </section>
 
     <!-- ---------------- Data ---------------- -->

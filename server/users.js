@@ -9,31 +9,63 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { encrypt, decrypt, hint, canEncrypt } from "./secretbox.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const USERS_FILE = process.env.USERS_FILE || path.join(HERE, "users.json");
 
 const MIN_PASSWORD = 8;
 
-/* ---- hashing ------------------------------------------------------------ */
+/* ---- password hashing ---------------------------------------------------
+   Passwords are HASHED, never encrypted — there must be no key anywhere that
+   turns a stored password back into the original. Cost parameters are written
+   into the hash so they can be raised later without invalidating old accounts.
+   Format: scrypt$<N>$<r>$<p>$<saltHex>$<keyHex>
+   ------------------------------------------------------------------------- */
 
-export function hashPassword(password) {
+const SCRYPT = { N: 1 << 16, r: 8, p: 1 };            // ~64 MB, ~100 ms
+const MAXMEM = 160 * 1024 * 1024;
+
+export function hashPassword(password, params = SCRYPT) {
+  const { N, r, p } = params;
   const salt = crypto.randomBytes(16);
-  const key = crypto.scryptSync(password, salt, 64);
-  return `scrypt$${salt.toString("hex")}$${key.toString("hex")}`;
+  const key = crypto.scryptSync(password, salt, 64, { N, r, p, maxmem: MAXMEM });
+  return `scrypt$${N}$${r}$${p}$${salt.toString("hex")}$${key.toString("hex")}`;
+}
+
+function parseHash(stored) {
+  const parts = String(stored || "").split("$");
+  if (parts[0] !== "scrypt") return null;
+  if (parts.length === 6) {
+    const [, N, r, p, saltHex, keyHex] = parts;
+    return { N: Number(N), r: Number(r), p: Number(p), saltHex, keyHex };
+  }
+  if (parts.length === 3) {
+    // pre-parameter hashes used node's scrypt defaults
+    return { N: 16384, r: 8, p: 1, saltHex: parts[1], keyHex: parts[2], legacy: true };
+  }
+  return null;
 }
 
 export function checkPassword(password, stored) {
-  const [scheme, saltHex, keyHex] = String(stored || "").split("$");
-  if (scheme !== "scrypt" || !saltHex || !keyHex) return false;
-  const expected = Buffer.from(keyHex, "hex");
+  const parsed = parseHash(stored);
+  if (!parsed) return false;
+  const expected = Buffer.from(parsed.keyHex, "hex");
   let actual;
   try {
-    actual = crypto.scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
+    actual = crypto.scryptSync(password, Buffer.from(parsed.saltHex, "hex"), expected.length, {
+      N: parsed.N, r: parsed.r, p: parsed.p, maxmem: MAXMEM,
+    });
   } catch {
     return false;
   }
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+/** true when a stored hash used weaker parameters than we now use */
+export function needsRehash(stored) {
+  const parsed = parseHash(stored);
+  return !parsed || parsed.N < SCRYPT.N || parsed.r < SCRYPT.r;
 }
 
 /* A dummy verify used when the email doesn't exist, so a missing account and a
@@ -119,10 +151,77 @@ export function verifyUser(email, password) {
   return checkPassword(password, user.passwordHash) ? user : null;
 }
 
-export function noteLogin(id) {
+export function noteLogin(id, password = null) {
   const users = readAll();
   const user = users.find((u) => u.id === id);
   if (!user) return;
   user.lastLoginAt = Date.now();
+  // opportunistically upgrade an old, cheaper hash now that we have the plaintext
+  if (password && needsRehash(user.passwordHash)) {
+    user.passwordHash = hashPassword(password);
+  }
   writeAll(users);
+}
+
+export function changePassword(id, currentPassword, newPassword) {
+  const users = readAll();
+  const user = users.find((u) => u.id === id);
+  if (!user) return { ok: false, error: "Account not found." };
+  if (!checkPassword(currentPassword, user.passwordHash)) {
+    return { ok: false, error: "Current password is wrong." };
+  }
+  const problem = passwordProblem(newPassword);
+  if (problem) return { ok: false, error: problem };
+
+  user.passwordHash = hashPassword(newPassword);
+  writeAll(users);
+  return { ok: true };
+}
+
+/* ---- stored API keys ----------------------------------------------------
+   Encrypted at rest with the server master key (see secretbox.js), decrypted
+   only in memory, only while proxying that user's own request.
+   ------------------------------------------------------------------------- */
+
+export function saveApiKey(id, provider, plaintextKey) {
+  if (!canEncrypt()) return { ok: false, error: "Server has no ENCRYPTION_KEY configured." };
+  if (!["anthropic", "openai"].includes(provider)) return { ok: false, error: "Unknown provider." };
+  const key = String(plaintextKey || "").trim();
+  if (key.length < 8) return { ok: false, error: "That doesn't look like an API key." };
+  if (key.length > 512) return { ok: false, error: "Key is too long." };
+
+  const users = readAll();
+  const user = users.find((u) => u.id === id);
+  if (!user) return { ok: false, error: "Account not found." };
+
+  user.apiKeys ??= {};
+  user.apiKeys[provider] = { blob: encrypt(key), hint: hint(key), savedAt: Date.now() };
+  writeAll(users);
+  return { ok: true, hint: user.apiKeys[provider].hint };
+}
+
+export function deleteApiKey(id, provider) {
+  const users = readAll();
+  const user = users.find((u) => u.id === id);
+  if (!user?.apiKeys?.[provider]) return false;
+  delete user.apiKeys[provider];
+  writeAll(users);
+  return true;
+}
+
+/** Masked summary for the UI — never returns key material. */
+export function listApiKeys(id) {
+  const user = findById(id);
+  const out = {};
+  for (const [provider, rec] of Object.entries(user?.apiKeys ?? {})) {
+    out[provider] = { hint: rec.hint, savedAt: rec.savedAt };
+  }
+  return out;
+}
+
+/** @returns the decrypted key, or null if absent or undecryptable */
+export function getApiKey(id, provider) {
+  const user = findById(id);
+  const rec = user?.apiKeys?.[provider];
+  return rec ? decrypt(rec.blob) : null;
 }

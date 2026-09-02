@@ -101,7 +101,7 @@ can't: **accounts** and **an optional server-held key**.
 git clone https://github.com/sauddarwish/StudentPilot.git /opt/cram
 cd /opt/cram/server
 cp .env.example .env
-$EDITOR .env                  # set SESSION_SECRET (required)
+node gen-secrets.js           # generates SESSION_SECRET and ENCRYPTION_KEY
 sudo cp cram.service /etc/systemd/system/
 sudo systemctl enable --now cram
 ```
@@ -128,6 +128,28 @@ user id, revalidated against the store on every request, so deleting an account
 kills its sessions immediately. Login and signup share a per-IP rate limit
 (10 attempts / 15 min). Static serving is allowlisted to `index.html` and `assets/`,
 so `server/.env`, `users.json` and `.git` all return 404.
+
+### How secrets are stored
+
+**Passwords are hashed, not encrypted** — deliberately. Encryption implies a key that
+can reverse it; there must be no way to turn a stored password back into the
+original. They go through scrypt (N=65536, r=8, p=1, 16-byte random salt, 64-byte
+output) with the cost parameters written into the hash, so they can be raised later
+without invalidating existing accounts. A login with an older, cheaper hash silently
+re-hashes at current cost.
+
+**API keys are encrypted**, because unlike a password the server has to be able to
+read one back to call the provider. Users can store a key against their account under
+**Settings → Account**; it's sealed with AES-256-GCM under `ENCRYPTION_KEY` (random
+12-byte IV per key, authenticated so tampering fails closed) and decrypted in memory
+only for the duration of that user's own request. `GET /api/keys` returns nothing but
+a masked hint like `sk-ant…9f2c`. Losing or changing `ENCRYPTION_KEY` makes stored
+keys undecryptable — they'd need to be re-entered.
+
+Users who'd rather not hand a key to the server can still type one into
+**Settings → Model**; that key stays in their browser and is sent straight to the
+provider, but it does sit in plain `localStorage`. Both options are offered and the
+tradeoff is stated in the UI.
 
 **Keys stay with whoever owns them.** By default each user adds their own API key
 under Settings → Model → Connections; it lives in their browser and the Cram server
@@ -171,7 +193,9 @@ assets/js/api.js      provider adapters + demo stream — swap this to change ba
 assets/js/app.js      rendering and event wiring
 server/server.js      accounts, session gating, optional model proxy
 server/users.js       JSON-file user store (scrypt hashes, atomic writes)
+server/secretbox.js   AES-256-GCM helper for secrets held at rest
 server/add-user.js    CLI to create or list accounts
+server/gen-secrets.js CLI to generate SESSION_SECRET and ENCRYPTION_KEY
 ```
 
 ## License
