@@ -951,46 +951,68 @@ function wireBehavior() {
    Model panel
    ========================================================================== */
 
+/* Replaces the hidden Live-mode toggle with something readable: where the
+   request goes, which key pays for it, and where that key actually lives. */
+function renderRelayStatus() {
+  const host = $("#relayStatus");
+  host.replaceChildren();
+  if (!serverMode) return;
+
+  const provider = state.model.serverProvider || "anthropic";
+  const stored = savedKeys[provider];
+
+  const card = el("div", stored ? "callout" : "callout callout--warn");
+  const line1 = el("div");
+  line1.append(
+    el("strong", null, stored ? "Live. " : "Demo replies. "),
+    el("span", null, stored
+      ? `Requests go to this site, which calls ${PROVIDER_LABEL[provider]} with your stored key.`
+      : `No ${PROVIDER_LABEL[provider]} key stored yet, so replies are scripted stubs.`),
+  );
+  card.append(line1);
+
+  const line2 = el("div", "field__help");
+  line2.style.marginTop = "6px";
+  line2.textContent = stored
+    ? `Key ${stored.hint} is held on the server, encrypted. It is never stored in this browser.`
+    : "Add one under Account. It is encrypted on the server and never stored in this browser.";
+  card.append(line2);
+
+  const row = el("div", "row");
+  row.style.marginTop = "10px";
+
+  /* Having a key for a provider you are not pointed at is the easy way to end
+     up staring at demo replies, so offer the switch right here. */
+  const elsewhere = Object.keys(savedKeys).filter((id) => id !== provider);
+  if (!stored && elsewhere.length) {
+    const other = elsewhere[0];
+    line2.textContent = `You do have a ${PROVIDER_LABEL[other]} key stored (${savedKeys[other].hint}).`;
+    const swap = el("button", "btn btn--sm btn--primary", `Switch to ${PROVIDER_LABEL[other]}`);
+    swap.type = "button";
+    swap.onclick = () => {
+      state.model.serverProvider = other;
+      state.model.model = PROVIDERS[other].models[0].id;
+      save();
+      renderModelPicker(); refreshHeader(); syncServerLiveState();
+      toast(`Now using ${modelInfo(other, state.model.model)?.name}`);
+    };
+    row.append(swap);
+  }
+
+  const go = el("button", "btn btn--sm", stored ? "Manage keys" : "Add a key");
+  go.type = "button";
+  go.onclick = () => selectTab("account");
+  row.append(go);
+  card.append(row);
+
+  host.append(card);
+}
+
 function renderConnections() {
   const host = $("#connectionEditor");
   host.replaceChildren();
 
-  if (serverMode) {
-    const stored = Object.keys(savedKeys);
-    const note = el("div", stored.length ? "callout" : "callout callout--warn");
-    note.append(
-      el("strong", null, stored.length ? "Relayed by this server. " : "No API key stored yet. "),
-      el("span", null, stored.length
-        ? "Your key is decrypted on the server for the duration of each request. " +
-          "It is never sent to this browser, and this browser never contacts the provider."
-        : "Add one under Settings → Account. Until then Cram replies with a demo stub."),
-    );
-    host.append(note);
-
-    const card = el("div", "card");
-
-    const label = el("label", "field__label", "Send through");
-    card.append(label);
-
-    const select = el("select", "select");
-    for (const [value, text] of [["anthropic", "Anthropic"], ["openai", "OpenAI"]]) {
-      const o = el("option", null, savedKeys[value] ? `${text}, key stored` : `${text}, no key`);
-      o.value = value;
-      select.append(o);
-    }
-    select.value = state.model.serverProvider || "anthropic";
-    select.onchange = () => { state.model.serverProvider = select.value; syncServerLiveState(); };
-    card.append(select);
-
-    const go = el("button", "btn btn--sm", "Manage stored keys →");
-    go.type = "button";
-    go.style.marginTop = "10px";
-    go.onclick = () => selectTab("account");
-    card.append(go);
-
-    host.append(card);
-    return;
-  }
+  if (serverMode) return;   // the whole Connections section is hidden instead
 
   state.connections.forEach((c, idx) => {
     const card = el("div", "card");
@@ -1133,6 +1155,8 @@ function renderModelPicker() {
     save();
   }
   modelSel.value = m.model;
+
+  renderRelayStatus();
 
   const info = modelInfo(providerSel.value, m.model);
   $("#modelCapabilities").textContent = info
@@ -1455,7 +1479,7 @@ function renderKeyVault() {
         const out = await postJson("/api/keys", { provider, delete: true });
         savedKeys = out.keys ?? {};
         syncServerLiveState();
-        renderKeyVault(); renderConnections();
+        renderKeyVault(); renderConnections(); renderRelayStatus();
         toast("Key deleted");
       } catch (err) { toast(err.message); }
     };
@@ -1476,6 +1500,7 @@ function syncServerLiveState() {
   state.model.live = Boolean(savedKeys[state.model.serverProvider || "anthropic"]);
   save();
   updateStatus();
+  renderRelayStatus();
 }
 
 function wireAccountPanel() {
@@ -1527,7 +1552,7 @@ function wireAccountPanel() {
           `Stored, encrypted. Still using ${PROVIDER_LABEL[current]}; switch provider above to use it.`;
       }
       syncServerLiveState();
-      renderKeyVault(); renderConnections();
+      renderKeyVault(); renderConnections(); renderRelayStatus();
       toast("Key encrypted and stored");
     } catch (err) {
       status.textContent = err.message;
@@ -1658,11 +1683,11 @@ function wireEvents() {
   /* In server mode there is no endpoint to configure, so those controls are
      hidden. This must NOT return: everything below still needs wiring. */
   if (serverMode) {
-    $("#addConnBtn").hidden = true;
-    $("#useSharedBtn").hidden = true;
-    $("#connHint").hidden = false;
-    $("#setLive").closest(".switch").hidden = true;   // derived, not chosen
-    renderConnections();
+    /* Nothing here applies: the server owns the endpoint and the key, and
+       live-versus-demo follows from whether a key is stored. */
+    $("#connectionsSection").hidden = true;
+    $("#setLive").closest(".switch").hidden = true;
+    $("#setStream").closest(".switch").hidden = true;
   } else {
   const useShared = $("#useSharedBtn");
   const hasStoredKey = Object.keys(savedKeys).length > 0;
