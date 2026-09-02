@@ -363,8 +363,8 @@ async function proxy(req, res, route, user) {
       error: {
         type: "not_configured",
         message:
-          `No ${spec.name} available. Save your own key under Settings → Model, ` +
-          `or ask the operator to configure a shared one.`,
+          `No API key available for ${providerName}. Add one under Settings → Account ` +
+          `and Cram will relay your requests through it.`,
       },
     });
   }
