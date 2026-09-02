@@ -27,6 +27,7 @@ import {
   changePassword, saveApiKey, deleteApiKey, listApiKeys, getApiKey,
 } from "./users.js";
 import { initMasterKey, canEncrypt, generateKey } from "./secretbox.js";
+import { runToolLoop } from "./tools.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = path.resolve(HERE, "..");
@@ -72,6 +73,7 @@ const CONFIG = {
   maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 8192),
 
   encryptionKey: process.env.ENCRYPTION_KEY || "",
+  allowWeb: (process.env.ALLOW_WEB ?? "true") !== "false",
 
   maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024),  // images travel in the body
   authMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 10),
@@ -465,6 +467,20 @@ async function proxy(req, res, route, user) {
     }
   }
 
+  /* Web access asks for a tool loop, which cannot be a straight pass-through:
+     the server has to run the searches and feed the results back. */
+  let parsed = null;
+  try { parsed = JSON.parse(body); } catch { /* handled below */ }
+  const wantsWeb = Boolean(parsed?.cram_web) && CONFIG.allowWeb;
+  if (parsed && "cram_web" in parsed) {
+    delete parsed.cram_web;                 // never forward our own flag
+    body = JSON.stringify(parsed);
+  }
+
+  if (wantsWeb) {
+    return relayWithTools({ req, res, spec, key, providerName, body: parsed, user });
+  }
+
   let upstream;
   try {
     upstream = await fetch(spec.url, { method: "POST", headers: spec.headers(key), body });
@@ -495,6 +511,58 @@ async function proxy(req, res, route, user) {
   } catch (err) {
     console.error("proxy stream error:", err.message);
   }
+  res.end();
+}
+
+/* Streams the tool loop back in the provider's own SSE shape, so the browser
+   parses it with the code it already has. Progress lines ride in as thinking. */
+async function relayWithTools({ res, spec, key, providerName, body, user }) {
+  const anthropic = providerName === "anthropic";
+
+  const post = async (payload) => {
+    const upstream = await fetch(spec.url, {
+      method: "POST",
+      headers: spec.headers(key),
+      body: JSON.stringify(payload),
+    });
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => "");
+      throw new Error(`${upstream.status} ${upstream.statusText}: ${detail.slice(0, 200)}`);
+    }
+    return upstream.json();
+  };
+
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    ...SECURITY_HEADERS,
+  });
+
+  const frame = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const sendThinking = (text) => frame(anthropic
+    ? { type: "content_block_delta", delta: { type: "thinking_delta", thinking: text } }
+    : { choices: [{ delta: { reasoning_content: text } }] });
+  const sendText = (text) => frame(anthropic
+    ? { type: "content_block_delta", delta: { type: "text_delta", text } }
+    : { choices: [{ delta: { content: text } }] });
+
+  let steps = 0;
+  try {
+    for await (const part of runToolLoop({ post, body, provider: providerName })) {
+      if (part.type === "step") { steps++; sendThinking(part.text + "\n"); }
+      else if (part.type === "thinking") sendThinking(part.text);
+      else {
+        // chunk the answer so it arrives like a stream rather than one blob
+        for (const piece of part.text.match(/[\s\S]{1,90}/g) ?? []) sendText(piece);
+      }
+    }
+    console.log(`web relay for ${logSafe(user.email)} (${providerName}) used ${steps} tool steps`);
+  } catch (err) {
+    console.error("web relay failed:", err.message);
+    sendText(`\n\n**Web lookup failed.** ${String(err.message).slice(0, 300)}`);
+  }
+  res.write("data: [DONE]\n\n");
   res.end();
 }
 
@@ -661,6 +729,7 @@ const server = http.createServer(async (req, res) => {
       /* The browser must not hold keys or call providers directly when the app
          is served from here, every request is relayed by this server. */
       serverMode: true,
+      web: CONFIG.allowWeb,
       encryption: canEncrypt(),
       savedKeys: canEncrypt() ? listApiKeys(user.id) : {},
       sharedEndpoint: {
@@ -688,6 +757,7 @@ server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`  accounts:        ${userCount()} registered, signup ${CONFIG.allowSignup ? "open" : "closed"}`);
   console.log(`  shared endpoint: ${CONFIG.anthropicKey || CONFIG.openaiKey || CONFIG.deepseekKey ? "on" : "off (users bring their own keys)"}`);
   console.log(`  key encryption:  ${canEncrypt() ? "on (AES-256-GCM)" : "OFF, set ENCRYPTION_KEY to let users store keys"}`);
+  console.log(`  web access:      ${CONFIG.allowWeb ? "available (search + page fetch)" : "disabled"}`);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

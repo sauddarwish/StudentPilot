@@ -52,6 +52,26 @@ A tagged library, type `/` in the composer to search it. `{{placeholders}}` are
 selected automatically after insertion, so you can type straight over the first one.
 Reorder and duplicate.
 
+### Web access
+A toggle in Settings → Model. When it is on the server runs a search-and-read loop
+for the model: it offers `web_search` and `fetch_url` as tools, executes whatever the
+model asks for, feeds the results back, and repeats up to five rounds before insisting
+on an answer. Every step shows up in the thinking block, so you can see what it read.
+
+This is server-side by necessity: the page is pinned by CSP to its own origin and
+would hit CORS on every site. It also means **DeepSeek gets web access too**, despite
+having no search of its own.
+
+Because the server fetches URLs the model chose, this is SSRF by construction. Scheme,
+port and the resolved IP are re-checked on every hop including redirects, so loopback,
+private ranges, link-local and cloud metadata are all unreachable. Responses are capped
+at 2 MB and 12k characters of extracted text.
+
+Search backends, best first: `BRAVE_API_KEY` (free tier, recommended), `SEARXNG_URL`
+for a self-hosted instance, or Wikipedia's API as a keyless fallback. `fetch_url`
+reaches any public page regardless of which is configured. `ALLOW_WEB=false` disables
+the tools entirely.
+
 ### Code
 Fenced blocks get a header with the language and a copy button. The system prompt asks
 for a language tag on every block so the label is meaningful.

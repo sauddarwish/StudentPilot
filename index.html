@@ -86,6 +86,7 @@
           <button type="button" class="btn btn--ghost btn--icon" id="attachBtn" title="Attach an image" aria-label="Attach an image">🖼</button>
           <input type="file" id="imageInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
           <button type="button" class="btn btn--ghost btn--sm" id="modelPickerBtn"><span id="activeModelName">Model</span></button>
+          <span class="badge" id="webBadge" hidden title="Web access is on">web</span>
           <span class="hint" id="modelHint"></span>
           <span class="hint" id="countHint"></span>
           <div class="spacer"></div>
@@ -378,6 +379,11 @@
       <div class="switch">
         <span class="switch__text">Show the thinking <span class="field__help">(collapsed, with elapsed time)</span></span>
         <input type="checkbox" id="setShowThinking">
+      </div>
+      <div class="switch">
+        <span class="switch__text">Web access
+          <span class="field__help">the model may search and read pages before answering</span></span>
+        <input type="checkbox" id="setWeb">
       </div>
 
       <div id="connectionsSection">

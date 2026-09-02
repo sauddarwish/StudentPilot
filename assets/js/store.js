@@ -283,6 +283,8 @@ export const DEFAULTS = {
     model: "claude-opus-5",
     effort: "high",                // reasoning depth where the provider supports it
     showThinking: true,
+    web: false,                    // let the model search and read pages
+
     system:
       "You are Cram, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing. " +
       "Use fenced code blocks with a language tag whenever you show code.",

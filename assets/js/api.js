@@ -165,6 +165,8 @@ export function buildRequest({ system, messages, cfg }) {
         stream: cfg.stream,
         // current Claude models think adaptively; effort is how you steer it
         ...(cfg.effort ? { output_config: { effort: cfg.effort } } : {}),
+        // Cram's own flag: the relay strips it and runs the search loop itself
+        ...(cfg.web ? { cram_web: true } : {}),
         ...(stop.length ? { stop_sequences: stop } : {}),
       },
     };
@@ -186,6 +188,7 @@ export function buildRequest({ system, messages, cfg }) {
       stream: cfg.stream,
       // OpenAI reasoning models take an effort level; DeepSeek ignores it
       ...(cfg.provider === "openai" && cfg.effort ? { reasoning_effort: cfg.effort } : {}),
+      ...(cfg.web ? { cram_web: true } : {}),
       ...(stop.length ? { stop } : {}),
     },
   };
@@ -264,6 +267,10 @@ export async function* streamReply({ system, messages, cfg, signal }) {
     yield* demoStream(messages, signal, cfg.demoSpeed, cfg.showThinking !== false);
     return;
   }
+
+  /* A tool loop cannot stream partial answers, so the relay collects the whole
+     reply and re-streams it. Asking for stream:true is still correct: the relay
+     emits provider-shaped SSE either way. */
 
   const { url, headers, body } = buildRequest({ system, messages, cfg });
   if (!url || !/^https?:/.test(url)) {

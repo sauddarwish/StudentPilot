@@ -57,6 +57,7 @@ let streaming = false;
 let account = null;        // { id, email }
 let sharedEndpoint = null; // { available, provider, model, maxTokens, url }
 let serverMode = false;    // served by the Cram server: it relays every request
+let webAvailable = false;  // the relay is willing to search and fetch
 let encryptionOn = false;  // server can encrypt stored keys
 let savedKeys = {};        // { anthropic: { hint, savedAt }, … }, masked only
 
@@ -68,6 +69,7 @@ async function loadServerConfig() {
     account = cfg?.user ?? null;
     sharedEndpoint = cfg?.sharedEndpoint ?? null;
     serverMode = Boolean(cfg?.serverMode);
+    webAvailable = Boolean(cfg?.web);
     encryptionOn = Boolean(cfg?.encryption);
     savedKeys = cfg?.savedKeys ?? {};
   } catch {
@@ -419,6 +421,7 @@ function effectiveConfig() {
       model: state.model.model,
       vision,
       effort,
+      web: Boolean(state.model.web && webAvailable),
       demoSpeed: state.behavior.demoSpeed,
     };
   }
@@ -1197,6 +1200,11 @@ function wireModel() {
   bind("#setShowThinking", () => m.showThinking, (v) => { m.showThinking = v; renderTranscript(); },
     { event: "change", prop: "checked" });
 
+  const webRow = $("#setWeb").closest(".switch");
+  webRow.hidden = !webAvailable;
+  bind("#setWeb", () => m.web, (v) => { m.web = v; refreshHeader(); updateStatus(); },
+    { event: "change", prop: "checked" });
+
   renderModelPicker();
 
   bind("#setSystem", () => m.system, (v) => { m.system = v; });
@@ -1231,7 +1239,7 @@ function updateStatus() {
     $("#modeTag").textContent = ready ? `via server · ${provider}` : BRAND.tagline;
     const info = modelInfo(provider, state.model.model);
     dom.modelHint.textContent = ready
-      ? `${info?.name || state.model.model} via server`
+      ? `${info?.name || state.model.model} via server${state.model.web && webAvailable ? ", web on" : ""}`
       : "add a key in Settings → Account";
     return;
   }
@@ -1575,6 +1583,9 @@ function refreshHeader() {
   const provider = state.model.serverProvider || "anthropic";
   const info = modelInfo(provider, state.model.model);
   $("#activeModelName").textContent = info?.name || state.model.model || "No model";
+  const webOn = Boolean(state.model.web && webAvailable);
+  $("#webBadge").hidden = !webOn;
+
   const vision = supportsImages(provider, state.model.model);
   $("#attachBtn").hidden = !vision;
   $("#attachBtn").title = vision ? "Attach an image" : "This model cannot read images";
