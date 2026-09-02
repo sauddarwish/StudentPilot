@@ -1,11 +1,11 @@
 /* ==========================================================================
-   store.js — defaults, persistence, and the single mutable app state.
+   store.js, defaults, persistence, and the single mutable app state.
    Everything lives in localStorage under one key so export/import is trivial.
    ========================================================================== */
 
 export const STORAGE_KEY = "cram.v1";
 
-/* Muted, ink-and-pigment tones — nothing neon. */
+/* Muted, ink-and-pigment tones, nothing neon. */
 export const ACCENTS = [
   "#c15f3c", "#a8503a", "#8a6a3f", "#6b7150",
   "#4a7c6f", "#4a6b8a", "#7a5b7d", "#4a4a46",
@@ -139,7 +139,7 @@ export const LAYOUT_PRESETS = {
 };
 
 export const FONT_STACKS = {
-  /* Book faces first — all of these ship with macOS/Windows, so nothing is
+  /* Book faces first. All of these ship with macOS/Windows, so nothing is
      fetched over the network (the CSP forbids it anyway). */
   book: '"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Charter,Georgia,serif',
   literary: 'Charter,Georgia,"Bitstream Charter","Sitka Text","Times New Roman",serif',
@@ -148,65 +148,51 @@ export const FONT_STACKS = {
   mono: '"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace',
 };
 
-export const DEFAULT_PILOTS = [
-  {
-    id: "general", emoji: "🎓", name: "General", accent: "",
-    desc: "A straight-talking study partner for anything.",
-    system:
-      "You are Cram, a study partner for a university student. Be direct and concrete. " +
-      "Prefer short paragraphs and worked examples over long preambles. If the student is wrong, say so plainly.",
-    greeting: "", model: "", temperature: null, maxTokens: null, starters: [],
+/* Verified against the providers' own model docs on 2 September 2026.
+   vision: accepts image input.  thinking: exposes reasoning before the answer. */
+export const PROVIDERS = {
+  anthropic: {
+    label: "Claude",
+    base: "https://api.anthropic.com/v1",
+    effortLevels: ["low", "medium", "high", "xhigh", "max"],
+    models: [
+      { id: "claude-opus-5",              name: "Claude Opus 5",     vision: true, thinking: true, note: "complex work" },
+      { id: "claude-fable-5-1",           name: "Claude Fable 5.1",  vision: true, thinking: true, note: "deepest reasoning" },
+      { id: "claude-sonnet-5",            name: "Claude Sonnet 5",   vision: true, thinking: true, note: "balanced" },
+      { id: "claude-haiku-4-5",           name: "Claude Haiku 4.5",  vision: true, thinking: true, note: "fastest" },
+      { id: "claude-opus-4-8",            name: "Claude Opus 4.8",   vision: true, thinking: true, note: "legacy" },
+      { id: "claude-sonnet-4-6",          name: "Claude Sonnet 4.6", vision: true, thinking: true, note: "legacy" },
+    ],
   },
-  {
-    id: "tutor", emoji: "🧠", name: "Socratic tutor", accent: "#8b5cf6",
-    desc: "Never hands you the answer — walks you to it.",
-    system:
-      "You are a Socratic tutor. Never give the final answer outright. Ask one guiding question at a time, " +
-      "wait for the student's attempt, and give a hint only after they try. Confirm understanding before moving on.",
-    greeting: "What are we trying to understand today? Tell me what you already know about it.",
-    model: "", temperature: 0.7, maxTokens: null,
-    starters: ["I don't understand recursion", "Walk me through Bayes' theorem"],
+  openai: {
+    label: "ChatGPT",
+    base: "https://api.openai.com/v1",
+    effortLevels: ["none", "low", "medium", "high", "max"],
+    models: [
+      { id: "gpt-5.6-sol",   name: "GPT-5.6 Sol",   vision: true, thinking: true, note: "flagship" },
+      { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", vision: true, thinking: true, note: "balanced" },
+      { id: "gpt-5.6-luna",  name: "GPT-5.6 Luna",  vision: true, thinking: true, note: "cost-saving" },
+    ],
   },
-  {
-    id: "essay", emoji: "✍️", name: "Essay coach", accent: "#0ea5e9",
-    desc: "Structure, argument and clarity feedback.",
-    system:
-      "You are an essay coach. Critique structure, thesis strength, evidence and clarity. Quote the student's own " +
-      "sentences when pointing at a problem. Never rewrite the essay for them — show the fix on one sentence and " +
-      "let them apply the pattern.",
-    greeting: "Paste your draft (or just the thesis) and tell me the prompt you're answering.",
-    model: "", temperature: 0.5, maxTokens: null,
-    starters: ["Critique my thesis statement", "Is my argument structure sound?"],
+  deepseek: {
+    label: "DeepSeek",
+    base: "https://api.deepseek.com/v1",
+    effortLevels: [],
+    models: [
+      { id: "deepseek-v4-pro",   name: "DeepSeek V4 Pro",   vision: false, thinking: true, note: "thinking by default" },
+      { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", vision: false, thinking: true, note: "fast and cheap" },
+    ],
   },
-  {
-    id: "examdrill", emoji: "📝", name: "Exam drill", accent: "#f59e0b",
-    desc: "Rapid-fire questions with scoring.",
-    system:
-      "You run exam drills. Ask one question at a time in the style of the exam the student names. After each answer, " +
-      "score it out of 5, explain the deduction in two lines, then immediately ask the next question. Keep a running total.",
-    greeting: "Which subject, and what exam format? I'll start firing.",
-    model: "", temperature: 0.4, maxTokens: null,
-    starters: ["Drill me on organic chemistry", "MCQ practice, 10 questions"],
-  },
-  {
-    id: "code", emoji: "💻", name: "Code mentor", accent: "#10b981",
-    desc: "Debugging and code review that explains why.",
-    system:
-      "You are a code mentor. When shown broken code, identify the root cause before proposing a fix, and say which " +
-      "line is wrong and why. Prefer minimal diffs. Point out security-relevant mistakes explicitly.",
-    greeting: "", model: "", temperature: 0.3, maxTokens: null,
-    starters: ["Review this function", "Why is this throwing?"],
-  },
-  {
-    id: "summarize", emoji: "📚", name: "Reading digest", accent: "#ec4899",
-    desc: "Condenses papers and lecture notes.",
-    system:
-      "You condense academic reading. Output: a 3-sentence core claim, the evidence it rests on, the stated limitations, " +
-      "and 3 questions a marker would ask. Flag anything the source asserts without support.",
-    greeting: "Paste the text or abstract you want digested.",
-    model: "", temperature: 0.3, maxTokens: null, starters: [],
-  },
-];
+};
+
+export const modelInfo = (providerId, modelId) =>
+  PROVIDERS[providerId]?.models.find((m) => m.id === modelId) || null;
+
+export const supportsImages = (providerId, modelId) =>
+  Boolean(modelInfo(providerId, modelId)?.vision);
+
+export const supportsThinking = (providerId, modelId) =>
+  Boolean(modelInfo(providerId, modelId)?.thinking);
 
 export const DEFAULT_PROMPTS = [
   { id: "p1", name: "Explain simply", tag: "learn", body: "Explain {{topic}} as if I have no background in it, then again at exam level. Note where the simple version breaks down." },
@@ -223,16 +209,16 @@ export const DEFAULT_CONNECTIONS = [
 ];
 
 export const DEFAULTS = {
-  version: 3,
+  version: 4,
 
   brand: {
     name: "Cram",
     logo: "🎓",
     tagline: "demo mode",
     welcomeTitle: "What are we working on?",
-    welcomeSubtitle: "Pick a pilot to start, or just type below.",
+    welcomeSubtitle: "Ask anything. Attach an image if the model supports it.",
     sendLabel: "Send ↵",
-    placeholder: "Ask anything… (/ for saved prompts)",
+    placeholder: "Ask anything. Type / for saved prompts.",
   },
 
   ui: {
@@ -284,7 +270,6 @@ export const DEFAULTS = {
     confirmDelete: true,
     streamCursor: true,
     demoSpeed: 9,
-    defaultPilot: "general",
   },
 
   connections: DEFAULT_CONNECTIONS,
@@ -292,8 +277,12 @@ export const DEFAULTS = {
 
   model: {
     serverProvider: "anthropic",   // which stored key to relay through
+    model: "claude-opus-5",
+    effort: "high",                // reasoning depth where the provider supports it
+    showThinking: true,
     system:
-      "You are Cram, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing.",
+      "You are Cram, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing. " +
+      "Use fenced code blocks with a language tag whenever you show code.",
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,
@@ -303,11 +292,9 @@ export const DEFAULTS = {
     live: false,
   },
 
-  pilots: DEFAULT_PILOTS,
   prompts: DEFAULT_PROMPTS,
   chats: [],
   activeChatId: null,
-  activePilotId: "general",
 };
 
 /* Keys that would reassign an object's prototype or constructor rather than
@@ -366,8 +353,16 @@ export function load(key = activeKey) {
        they are reset once. Chats, pilots, prompts and branding are untouched. */
     if ((Number(saved.version) || 0) < 3) {
       merged.ui = { ...structuredClone(DEFAULTS.ui), sidebar: merged.ui?.sidebar ?? "shown" };
-      merged.version = DEFAULTS.version;
     }
+    /* v4 removed the persona "pilots". Strip the leftover keys so they cannot
+       reappear through the merge, and drop the per-chat pilot reference. */
+    if ((Number(saved.version) || 0) < 4) {
+      delete merged.pilots;
+      delete merged.activePilotId;
+      delete merged.behavior?.defaultPilot;
+      for (const chat of merged.chats ?? []) delete chat.pilotId;
+    }
+    merged.version = DEFAULTS.version;
     return merged;
   } catch {
     return structuredClone(DEFAULTS);
@@ -418,30 +413,20 @@ export function activeChat() {
   return state.chats.find((c) => c.id === state.activeChatId) || null;
 }
 
-export function pilotById(id) {
-  return state.pilots.find((p) => p.id === id) || state.pilots[0];
-}
-
 export function activeConnection() {
   return state.connections.find((c) => c.id === state.activeConnectionId) || state.connections[0];
 }
 
-export function newChat(pilotId = state.behavior.defaultPilot || state.activePilotId) {
-  const pilot = pilotById(pilotId);
+export function newChat() {
   const chat = {
     id: uid(),
     title: "New chat",
-    pilotId: pilot.id,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     messages: [],
   };
-  if (pilot.greeting) {
-    chat.messages.push({ id: uid(), role: "assistant", content: pilot.greeting, at: Date.now() });
-  }
   state.chats.unshift(chat);
   state.activeChatId = chat.id;
-  state.activePilotId = pilot.id;
   save();
   return chat;
 }

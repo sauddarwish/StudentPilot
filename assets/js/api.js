@@ -1,50 +1,65 @@
 /* ==========================================================================
-   api.js — the only file that talks to a model.
-   Nothing else in the app knows what a provider is; swap this out and the
-   rest of Cram keeps working.
+   api.js is the only file that talks to a model. Nothing else in the app
+   knows what a provider is; swap this out and the rest of Cram keeps working.
 
-   On a hosted deployment `cfg.baseUrl` points at Cram's own /api/v1 and
-   `cfg.apiKey` is empty: the server holds the key and makes the provider call.
-   In the standalone static build it points straight at the provider instead.
+   On a hosted deployment cfg.baseUrl points at Cram's own /api/v1 and
+   cfg.apiKey is empty: the server holds the key and makes the provider call.
+   In the standalone static build it points straight at the provider.
 
    Public surface:
-     streamReply({ system, messages, cfg, signal, pilotName }) -> async gen
-   where cfg merges the active connection (provider/baseUrl/model/key/headers)
-   with the generation settings (temperature, maxTokens, stop, …).
+     streamReply({ system, messages, cfg, signal }) -> async generator of
+       { type: "thinking" | "text", text }
+     testConnection(cfg) -> string
+
+   `messages` is the whole conversation so far, each entry:
+     { role: "user" | "assistant", content: string, images?: [{ mediaType, data }] }
    ========================================================================== */
 
-/* ---- demo mode ---------------------------------------------------------- */
+/* ---- demo mode ----------------------------------------------------------
+   Deliberately conversational: it counts the turns and refers back to what
+   was said, so the transcript behaves like a conversation and not like a
+   single canned reply repeated forever.
+   ------------------------------------------------------------------------- */
 
-const DEMO_OPENERS = [
-  "Here's how I'd approach that.",
-  "Good question — let's break it down.",
-  "Short answer first, then the reasoning.",
-];
+function demoReply(messages) {
+  const userTurns = messages.filter((m) => m.role === "user");
+  const latest = userTurns.at(-1);
+  const question = (latest?.content || "").trim().replace(/\s+/g, " ").slice(0, 120) || "that";
+  const turn = userTurns.length;
+  const imageCount = userTurns.reduce((n, m) => n + (m.images?.length || 0), 0);
 
-function demoReply(userText, pilotName) {
-  const topic = userText.trim().replace(/\s+/g, " ").slice(0, 90) || "that";
-  const opener = DEMO_OPENERS[topic.length % DEMO_OPENERS.length];
+  if (turn === 1) {
+    return `You asked: **${question}**
 
-  return `${opener}
+I am a **demo reply**, not a model. The whole app is wired up: this conversation is
+being assembled into a real request with your system prompt, your settings and every
+previous turn attached. Only the network call is stubbed out.
 
-**You asked:** ${topic}
+Add an API key under **Settings → Account** and Cram will relay to the provider you
+picked. Until then, keep typing and I will keep track of the conversation so you can
+see that multi-turn actually works.`;
+  }
 
-This is a **demo response** — Cram's frontend is fully wired, but no model is connected yet, so I'm echoing a stub instead of thinking.
+  const earlier = userTurns.slice(0, -1).map((m, i) =>
+    `${i + 1}. ${(m.content || "").trim().replace(/\s+/g, " ").slice(0, 60)}`).join("\n");
 
-To make this real:
+  return `That is **turn ${turn}** of this conversation, and I still have the earlier ones:
 
-1. Open **Settings → Model**
-2. Pick a connection, set its **Base URL** and **Model ID**
-3. Turn on **Live mode**
+${earlier}
 
-Everything else already works — the *${pilotName}* pilot's system prompt, your temperature and token settings, and the last few turns of this chat are all being assembled into a proper request. Only the network call is stubbed.
+Your latest: **${question}**${imageCount ? `\n\nYou have attached ${imageCount} image${imageCount === 1 ? "" : "s"} so far. A real model would be looking at ${imageCount === 1 ? "it" : "them"} here.` : ""}
+
+Every one of those turns goes out with the next request, which is what makes this a
+conversation rather than a series of unrelated questions.
 
 \`\`\`js
-// assets/js/api.js — this is the request that would go out
-{ model: "…", system: "…", messages: [...], stream: true }
-\`\`\`
-
-> Everything you can see is adjustable: try **Theme** for a full palette swap, **Layout** for density and shape, or **Advanced** to drop in your own CSS.`;
+// what the request body looks like right now
+{
+  model: "...",
+  messages: ${JSON.stringify(userTurns.length)} user turns + ${messages.length - userTurns.length} assistant turns,
+  stream: true
+}
+\`\`\``;
 }
 
 const sleep = (ms, signal) =>
@@ -53,13 +68,22 @@ const sleep = (ms, signal) =>
     signal?.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
   });
 
-async function* demoStream(userText, pilotName, signal, speed = 9) {
-  const text = demoReply(userText, pilotName);
-  const chunks = text.match(/\S+\s*/g) ?? [text];
-  await sleep(Math.min(280, speed * 24), signal);
-  for (const chunk of chunks) {
+async function* demoStream(messages, signal, speed = 9, withThinking = true) {
+  if (withThinking) {
+    const musing = "Reading the conversation so far, checking what was already covered, then answering the latest turn.";
+    await sleep(Math.min(200, speed * 18), signal);
+    for (const word of musing.match(/\S+\s*/g) ?? []) {
+      if (signal?.aborted) return;
+      yield { type: "thinking", text: word };
+      if (speed > 0) await sleep(speed, signal);
+    }
+  }
+
+  const text = demoReply(messages);
+  await sleep(Math.min(240, speed * 20), signal);
+  for (const chunk of text.match(/\S+\s*/g) ?? [text]) {
     if (signal?.aborted) return;
-    yield chunk;
+    yield { type: "text", text: chunk };
     if (speed > 0) await sleep(speed + (chunk.length % 5) * 4, signal);
   }
 }
@@ -69,8 +93,12 @@ async function* demoStream(userText, pilotName, signal, speed = 9) {
 const DEFAULT_BASE = {
   anthropic: "https://api.anthropic.com/v1",
   openai: "https://api.openai.com/v1",
+  deepseek: "https://api.deepseek.com/v1",
   custom: "",
 };
+
+/* DeepSeek and any other OpenAI-compatible endpoint share one request shape. */
+const isAnthropic = (provider) => provider === "anthropic";
 
 function extraHeaders(cfg) {
   const out = {};
@@ -81,18 +109,43 @@ function extraHeaders(cfg) {
 }
 
 function stopList(cfg) {
-  return String(cfg.stop || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return String(cfg.stop || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-function buildRequest({ system, messages, cfg }) {
+/* Anthropic wants base64 in a source object; OpenAI wants a data: URL. */
+function anthropicContent(message, allowImages) {
+  const blocks = [];
+  if (allowImages) {
+    for (const img of message.images ?? []) {
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: img.mediaType, data: img.data },
+      });
+    }
+  }
+  if (message.content) blocks.push({ type: "text", text: message.content });
+  return blocks.length ? blocks : [{ type: "text", text: "" }];
+}
+
+function openaiContent(message, allowImages) {
+  const hasImages = allowImages && (message.images?.length ?? 0) > 0;
+  if (!hasImages) return message.content ?? "";
+
+  const parts = message.images.map((img) => ({
+    type: "image_url",
+    image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+  }));
+  if (message.content) parts.push({ type: "text", text: message.content });
+  return parts;
+}
+
+export function buildRequest({ system, messages, cfg }) {
   const base = (cfg.baseUrl || DEFAULT_BASE[cfg.provider] || "").replace(/\/+$/, "");
   const headers = { "content-type": "application/json" };
   const stop = stopList(cfg);
+  const allowImages = cfg.vision !== false;
 
-  if (cfg.provider === "anthropic") {
+  if (isAnthropic(cfg.provider)) {
     if (cfg.apiKey) {
       headers["x-api-key"] = cfg.apiKey;
       headers["anthropic-version"] = "2023-06-01";
@@ -105,17 +158,18 @@ function buildRequest({ system, messages, cfg }) {
       body: {
         model: cfg.model,
         system,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: messages.map((m) => ({ role: m.role, content: anthropicContent(m, allowImages) })),
         max_tokens: cfg.maxTokens,
         temperature: cfg.temperature,
         top_p: cfg.topP,
         stream: cfg.stream,
+        // current Claude models think adaptively; effort is how you steer it
+        ...(cfg.effort ? { output_config: { effort: cfg.effort } } : {}),
         ...(stop.length ? { stop_sequences: stop } : {}),
       },
     };
   }
 
-  // openai-compatible (also the sane shape for most self-hosted proxies)
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
   return {
     url: `${base}/chat/completions`,
@@ -124,12 +178,14 @@ function buildRequest({ system, messages, cfg }) {
       model: cfg.model,
       messages: [
         { role: "system", content: system },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ...messages.map((m) => ({ role: m.role, content: openaiContent(m, allowImages) })),
       ],
       max_tokens: cfg.maxTokens,
       temperature: cfg.temperature,
       top_p: cfg.topP,
       stream: cfg.stream,
+      // OpenAI reasoning models take an effort level; DeepSeek ignores it
+      ...(cfg.provider === "openai" && cfg.effort ? { reasoning_effort: cfg.effort } : {}),
       ...(stop.length ? { stop } : {}),
     },
   };
@@ -167,49 +223,68 @@ async function* sseEvents(response, signal) {
   }
 }
 
-function textFromEvent(event, provider) {
-  if (provider === "anthropic") {
-    return event.type === "content_block_delta" ? event.delta?.text ?? "" : "";
+/** Normalises one provider event into { type, text } or null. */
+function partFromEvent(event, provider) {
+  if (isAnthropic(provider)) {
+    if (event.type !== "content_block_delta") return null;
+    const delta = event.delta ?? {};
+    if (delta.type === "thinking_delta") return { type: "thinking", text: delta.thinking ?? "" };
+    if (delta.type === "text_delta") return { type: "text", text: delta.text ?? "" };
+    return null;
   }
-  return event.choices?.[0]?.delta?.content ?? "";
+
+  const delta = event.choices?.[0]?.delta ?? {};
+  // DeepSeek streams its chain of thought in reasoning_content
+  if (delta.reasoning_content) return { type: "thinking", text: delta.reasoning_content };
+  if (delta.reasoning) return { type: "thinking", text: delta.reasoning };
+  if (delta.content) return { type: "text", text: delta.content };
+  return null;
 }
 
-function textFromWhole(json, provider) {
-  if (provider === "anthropic") {
-    return (json.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+function partsFromWhole(json, provider) {
+  if (isAnthropic(provider)) {
+    const out = [];
+    for (const block of json.content ?? []) {
+      if (block.type === "thinking") out.push({ type: "thinking", text: block.thinking ?? "" });
+      if (block.type === "text") out.push({ type: "text", text: block.text ?? "" });
+    }
+    return out;
   }
-  return json.choices?.[0]?.message?.content ?? "";
+  const message = json.choices?.[0]?.message ?? {};
+  const out = [];
+  if (message.reasoning_content) out.push({ type: "thinking", text: message.reasoning_content });
+  if (message.content) out.push({ type: "text", text: message.content });
+  return out;
 }
 
 /* ---- public ------------------------------------------------------------- */
 
-export async function* streamReply({ system, messages, cfg, signal, pilotName = "General" }) {
+export async function* streamReply({ system, messages, cfg, signal }) {
   if (!cfg.live) {
-    const last = [...messages].reverse().find((m) => m.role === "user");
-    yield* demoStream(last?.content ?? "", pilotName, signal, cfg.demoSpeed);
+    yield* demoStream(messages, signal, cfg.demoSpeed, cfg.showThinking !== false);
     return;
   }
 
   const { url, headers, body } = buildRequest({ system, messages, cfg });
   if (!url || !/^https?:/.test(url)) {
-    throw new Error("Live mode is on but this connection has no valid Base URL (Settings → Model).");
+    throw new Error("No endpoint is configured for this connection (Settings → Model).");
   }
 
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal });
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 300)}` : ""}`);
+    throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
   }
 
   if (!cfg.stream || !res.body) {
-    yield textFromWhole(await res.json(), cfg.provider);
+    for (const part of partsFromWhole(await res.json(), cfg.provider)) yield part;
     return;
   }
 
   for await (const event of sseEvents(res, signal)) {
-    const chunk = textFromEvent(event, cfg.provider);
-    if (chunk) yield chunk;
+    const part = partFromEvent(event, cfg.provider);
+    if (part && part.text) yield part;
   }
 }
 
@@ -218,12 +293,13 @@ export async function testConnection(cfg) {
   const { url, headers, body } = buildRequest({
     system: "reply with the single word: ok",
     messages: [{ role: "user", content: "ping" }],
-    cfg: { ...cfg, stream: false, maxTokens: 16 },
+    cfg: { ...cfg, stream: false, maxTokens: 16, effort: "" },
   });
   if (!url || !/^https?:/.test(url)) throw new Error("No valid Base URL set.");
 
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  const text = textFromWhole(await res.json(), cfg.provider);
+  const parts = partsFromWhole(await res.json(), cfg.provider);
+  const text = parts.filter((p) => p.type === "text").map((p) => p.text).join("");
   return text.trim().slice(0, 60) || "(empty reply)";
 }

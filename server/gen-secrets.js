@@ -30,6 +30,6 @@ fs.chmodSync(ENV, 0o600);
 
 console.log(added.length
   ? `\n  Generated: ${added.join(", ")}\n  Written to ${ENV} (mode 600).\n`
-  : `\n  Nothing to do — both secrets are already set in ${ENV}.\n`);
+  : `\n  Nothing to do, both secrets are already set in ${ENV}.\n`);
 console.log("  Note: changing ENCRYPTION_KEY makes every saved API key undecryptable.");
 console.log("  Restart to apply:  sudo systemctl restart cram\n");

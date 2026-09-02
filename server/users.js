@@ -1,5 +1,5 @@
 /* ==========================================================================
-   users.js — a tiny JSON-file user store.
+   users.js, a tiny JSON-file user store.
 
    One process, small user counts, no dependencies. Writes are atomic
    (tmp file + rename) so a crash mid-write cannot truncate the store.
@@ -17,7 +17,7 @@ export const USERS_FILE = process.env.USERS_FILE || path.join(HERE, "users.json"
 const MIN_PASSWORD = 8;
 
 /* ---- password hashing ---------------------------------------------------
-   Passwords are HASHED, never encrypted — there must be no key anywhere that
+   Passwords are HASHED, never encrypted. There must be no key anywhere that
    turns a stored password back into the original. Cost parameters are written
    into the hash so they can be raised later without invalidating old accounts.
    Format: scrypt$<N>$<r>$<p>$<saltHex>$<keyHex>
@@ -94,7 +94,7 @@ function writeAll(users) {
 
 export const normalizeEmail = (email) => String(email || "").trim().toLowerCase();
 
-/* Deliberately permissive — enough to catch typos, not a spec implementation. */
+/* Deliberately permissive, enough to catch typos, not a spec implementation. */
 export const validEmail = (email) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizeEmail(email)) && email.length <= 254;
 
@@ -178,7 +178,7 @@ export function changePassword(id, currentPassword, newPassword) {
   return { ok: true };
 }
 
-const PROVIDERS = ["anthropic", "openai"];
+const PROVIDERS = ["anthropic", "openai", "deepseek"];
 
 /* ---- stored API keys ----------------------------------------------------
    Encrypted at rest with the server master key (see secretbox.js), decrypted
@@ -212,7 +212,7 @@ export function deleteApiKey(id, provider) {
   return true;
 }
 
-/** Masked summary for the UI — never returns key material. */
+/** Masked summary for the UI, never returns key material. */
 export function listApiKeys(id) {
   const user = findById(id);
   const out = {};

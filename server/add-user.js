@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Create or list accounts from the command line — useful when signups are
+/* Create or list accounts from the command line, useful when signups are
    closed, or to seed the first account.
 
    Usage:
@@ -37,7 +37,7 @@ if (arg === "--list") {
       console.log();
     }
   } catch {
-    console.log("\n  No user store yet — nobody has signed up.\n");
+    console.log("\n  No user store yet, nobody has signed up.\n");
   }
   process.exit(0);
 }

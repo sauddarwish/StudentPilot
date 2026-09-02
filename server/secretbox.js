@@ -1,5 +1,5 @@
 /* ==========================================================================
-   secretbox.js — authenticated encryption for secrets held at rest.
+   secretbox.js, authenticated encryption for secrets held at rest.
 
    Used for API keys, which we must be able to read back to call the provider.
    NOT used for passwords: those are hashed in users.js, because nothing should
@@ -56,12 +56,12 @@ export function decrypt(blob) {
       decipher.final(),
     ]).toString("utf8");
   } catch {
-    // wrong master key, or the ciphertext was modified — both land here
+    // wrong master key, or the ciphertext was modified, both land here
     return null;
   }
 }
 
-/** "sk-ant-…9f2c" — safe to show in a UI or a log */
+/** "sk-ant-…9f2c", safe to show in a UI or a log */
 export function hint(secret) {
   const s = String(secret ?? "");
   if (s.length <= 8) return "…";

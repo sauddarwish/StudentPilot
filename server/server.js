@@ -3,16 +3,16 @@
    Cram server
 
    Jobs:
-     1. Accounts. Email + password signup and login, enforced server-side —
+     1. Accounts. Email + password signup and login, enforced server-side 
         an unauthenticated request never receives index.html, the JS or the
         CSS. Only /login, /signup and their POST handlers are reachable
         logged out.
      2. An optional model proxy. If the operator puts a key in .env, signed-in
         users can point a connection at /api/v1 on this origin and the key is
         attached here rather than in the browser. Users are also free to use
-        their own keys directly — that is the default.
+        their own keys directly, that is the default.
 
-   Zero npm dependencies — node:http, node:crypto and global fetch only.
+   Zero npm dependencies, node:http, node:crypto and global fetch only.
    ========================================================================== */
 
 import http from "node:http";
@@ -61,17 +61,19 @@ const CONFIG = {
   secureCookie: (process.env.SECURE_COOKIE ?? "true") !== "false",
   allowSignup: (process.env.ALLOW_SIGNUP ?? "true") !== "false",
 
-  // optional shared proxy — off unless the operator supplies a key
+  // optional shared proxy, off unless the operator supplies a key
   anthropicKey: process.env.ANTHROPIC_API_KEY || "",
   anthropicBase: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com/v1",
   openaiKey: process.env.OPENAI_API_KEY || "",
   openaiBase: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  deepseekKey: process.env.DEEPSEEK_API_KEY || "",
+  deepseekBase: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1",
   forceModel: process.env.FORCE_MODEL || "",
   maxTokensCap: Number(process.env.MAX_TOKENS_CAP || 8192),
 
   encryptionKey: process.env.ENCRYPTION_KEY || "",
 
-  maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 256 * 1024),
+  maxBodyBytes: Number(process.env.MAX_BODY_BYTES || 16 * 1024 * 1024),  // images travel in the body
   authMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 10),
   authWindowMin: Number(process.env.LOGIN_WINDOW_MIN || 15),
 };
@@ -221,7 +223,7 @@ function send(res, status, body, headers = {}) {
 const logSafe = (value, max = 120) =>
   String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, max);
 
-/* Request bodies must be JSON objects — not arrays, strings, or null. */
+/* Request bodies must be JSON objects, not arrays, strings, or null. */
 function parseJsonObject(raw) {
   const parsed = JSON.parse(raw);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -258,7 +260,7 @@ const MIME = {
 const SERVE_ALLOW = [/^\/$/, /^\/index\.html$/, /^\/assets\//];
 
 /* The URL is percent-decoded before it gets here, so "..%2f" arrives as "../".
-   Collapse the path FIRST and only then test the allowlist — testing before
+   Collapse the path FIRST and only then test the allowlist, testing before
    normalising let "/assets/../server/.env" pass as an /assets/ path. */
 function normalizePath(urlPath) {
   if (typeof urlPath !== "string" || urlPath.includes("\0")) return null;
@@ -334,7 +336,7 @@ const AUTH_CSS = `
 function authPage({ mode, error = "", email = "", notice = "" }) {
   const signup = mode === "signup";
   const title = signup ? "Create your account" : "Welcome back";
-  const sub = signup ? "Email and password — that's all we need." : "Sign in to your Cram workspace.";
+  const sub = signup ? "Email and password, that's all we need." : "Sign in to your Cram workspace.";
 
   const errBlock = error ? `<p class="err">${escapeHtml(error)}</p>` : "";
   const noticeBlock = notice ? `<p class="hint">${escapeHtml(notice)}</p>` : "";
@@ -408,14 +410,29 @@ const PROXY_ROUTES = {
     }),
     name: "OPENAI_API_KEY",
   }),
+  "/api/v1/deepseek/chat/completions": () => ({
+    url: `${CONFIG.deepseekBase.replace(/\/+$/, "")}/chat/completions`,
+    key: CONFIG.deepseekKey,
+    headers: (key) => ({
+      "content-type": "application/json",
+      authorization: `Bearer ${key}`,
+    }),
+    name: "DEEPSEEK_API_KEY",
+  }),
 };
+
+/* which stored key a proxied path should use */
+const providerForRoute = (route) =>
+  route.includes("/deepseek/") ? "deepseek"
+  : route.endsWith("/messages") ? "anthropic"
+  : "openai";
 
 async function proxy(req, res, route, user) {
   const spec = PROXY_ROUTES[route]();
 
   /* Prefer the user's own saved key (encrypted at rest, decrypted here only for
      the duration of their request). Fall back to the operator's shared key. */
-  const providerName = route.includes("messages") ? "anthropic" : "openai";
+  const providerName = providerForRoute(route);
   const ownKey = canEncrypt() ? getApiKey(user.id, providerName) : null;
   const usingOwnKey = Boolean(ownKey);
   const key = ownKey || spec.key;
@@ -508,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       users: userCount(),
       signup: CONFIG.allowSignup,
-      sharedEndpoint: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
+      sharedEndpoint: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey || CONFIG.deepseekKey),
     });
   }
 
@@ -642,13 +659,13 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, {
       user: { id: user.id, email: user.email },
       /* The browser must not hold keys or call providers directly when the app
-         is served from here — every request is relayed by this server. */
+         is served from here, every request is relayed by this server. */
       serverMode: true,
       encryption: canEncrypt(),
       savedKeys: canEncrypt() ? listApiKeys(user.id) : {},
       sharedEndpoint: {
-        available: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey),
-        provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : "",
+        available: Boolean(CONFIG.anthropicKey || CONFIG.openaiKey || CONFIG.deepseekKey),
+        provider: CONFIG.anthropicKey ? "anthropic" : CONFIG.openaiKey ? "openai" : CONFIG.deepseekKey ? "deepseek" : "",
         model: CONFIG.forceModel,
         maxTokens: CONFIG.maxTokensCap,
         url: "/api/v1",
@@ -669,8 +686,8 @@ const server = http.createServer(async (req, res) => {
 server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`Cram listening on http://${CONFIG.host}:${CONFIG.port}`);
   console.log(`  accounts:        ${userCount()} registered, signup ${CONFIG.allowSignup ? "open" : "closed"}`);
-  console.log(`  shared endpoint: ${CONFIG.anthropicKey || CONFIG.openaiKey ? "on" : "off (users bring their own keys)"}`);
-  console.log(`  key encryption:  ${canEncrypt() ? "on (AES-256-GCM)" : "OFF — set ENCRYPTION_KEY to let users store keys"}`);
+  console.log(`  shared endpoint: ${CONFIG.anthropicKey || CONFIG.openaiKey || CONFIG.deepseekKey ? "on" : "off (users bring their own keys)"}`);
+  console.log(`  key encryption:  ${canEncrypt() ? "on (AES-256-GCM)" : "OFF, set ENCRYPTION_KEY to let users store keys"}`);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

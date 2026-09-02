@@ -1,5 +1,5 @@
 /* ==========================================================================
-   markdown.js — a deliberately small subset renderer.
+   markdown.js, a deliberately small subset renderer.
    HTML is escaped up front, so nothing a model returns can inject markup.
    ========================================================================== */
 

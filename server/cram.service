@@ -23,7 +23,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-# NOTE: no MemoryDenyWriteExecute — V8's JIT needs W+X and traps without it.
+# NOTE: no MemoryDenyWriteExecute, V8's JIT needs W+X and traps without it.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]

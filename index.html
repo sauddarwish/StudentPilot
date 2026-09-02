@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cram</title>
-<meta name="description" content="A quiet, deeply customizable study workspace — pilots, prompt library, full typographic control.">
+<meta name="description" content="A quiet, deeply customizable study workspace: prompts, images and full typographic control.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" id="favicon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
 <link rel="stylesheet" href="assets/css/app.css">
@@ -36,9 +36,6 @@
     </div>
 
     <div class="sidebar__scroll">
-      <div class="sidebar__label">Pilots</div>
-      <div class="sidebar__section" id="pilotList"></div>
-
       <div class="sidebar__label">
         <span>Chats</span>
         <button class="tool-btn" id="clearChatsBtn" title="Delete all chats">clear</button>
@@ -74,19 +71,21 @@
     <div class="transcript" id="transcript">
       <div id="welcome" class="welcome">
         <h1 id="welcomeTitle">What are we working on?</h1>
-        <p id="welcomeSubtitle">Pick a pilot to start, or just type below.</p>
-        <div class="pilot-grid" id="pilotGrid"></div>
+        <p id="welcomeSubtitle">Ask anything. Attach an image if the model supports it.</p>
       </div>
       <div class="transcript__inner" id="messages"></div>
     </div>
 
     <div class="composer-wrap">
       <form class="composer" id="composer">
+        <div class="attachments" id="attachments" hidden></div>
         <div class="composer__chips" id="composerChips"></div>
         <textarea class="composer__input" id="input" rows="1"
                   placeholder="Ask anything… (/ for saved prompts)"></textarea>
         <div class="composer__row">
-          <button type="button" class="btn btn--ghost btn--sm" id="pilotPickerBtn">🎯 <span id="activePilotName">General</span></button>
+          <button type="button" class="btn btn--ghost btn--icon" id="attachBtn" title="Attach an image" aria-label="Attach an image">🖼</button>
+          <input type="file" id="imageInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+          <button type="button" class="btn btn--ghost btn--sm" id="modelPickerBtn"><span id="activeModelName">Model</span></button>
           <span class="hint" id="modelHint"></span>
           <span class="hint" id="countHint"></span>
           <div class="spacer"></div>
@@ -115,7 +114,6 @@
     <button class="tab" role="tab" data-tab="brand"    aria-selected="false">Branding</button>
     <button class="tab" role="tab" data-tab="behavior" aria-selected="false">Behaviour</button>
     <button class="tab" role="tab" data-tab="model"    aria-selected="false">Model</button>
-    <button class="tab" role="tab" data-tab="pilots"   aria-selected="false">Pilots</button>
     <button class="tab" role="tab" data-tab="prompts"  aria-selected="false">Prompts</button>
     <button class="tab" role="tab" data-tab="advanced" aria-selected="false">Advanced</button>
     <button class="tab" role="tab" data-tab="account"  aria-selected="false" hidden>Account</button>
@@ -168,7 +166,7 @@
         </select>
       </div>
 
-      <div class="section-title">Palette overrides <span class="field__help">— editing <span id="paletteModeLabel">light</span> mode</span></div>
+      <div class="section-title">Palette overrides <span class="field__help">,  editing <span id="paletteModeLabel">light</span> mode</span></div>
       <div class="callout">
         These override the preset for whichever mode you're currently viewing. Switch the mode above (or hit the
         moon button) to edit the other one. Blank means "use the preset".
@@ -217,27 +215,27 @@
       <div class="section-title">Spacing &amp; size</div>
       <div class="grid-2">
         <div class="field">
-          <label class="field__label" for="setDensity">Gap — <span id="densityVal"></span></label>
+          <label class="field__label" for="setDensity">Gap: <span id="densityVal"></span></label>
           <input class="range" type="range" id="setDensity" min="4" max="40" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setWidth">Column — <span id="widthVal"></span></label>
+          <label class="field__label" for="setWidth">Column: <span id="widthVal"></span></label>
           <input class="range" type="range" id="setWidth" min="30" max="80" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setPadY">Bubble padding Y — <span id="padYVal"></span></label>
+          <label class="field__label" for="setPadY">Bubble padding Y: <span id="padYVal"></span></label>
           <input class="range" type="range" id="setPadY" min="2" max="28" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setPadX">Bubble padding X — <span id="padXVal"></span></label>
+          <label class="field__label" for="setPadX">Bubble padding X: <span id="padXVal"></span></label>
           <input class="range" type="range" id="setPadX" min="2" max="34" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setAvatarSize">Avatar — <span id="avatarSizeVal"></span></label>
+          <label class="field__label" for="setAvatarSize">Avatar: <span id="avatarSizeVal"></span></label>
           <input class="range" type="range" id="setAvatarSize" min="18" max="48" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setSidebarWidth">Sidebar — <span id="sidebarWidthVal"></span></label>
+          <label class="field__label" for="setSidebarWidth">Sidebar: <span id="sidebarWidthVal"></span></label>
           <input class="range" type="range" id="setSidebarWidth" min="200" max="420" step="4">
         </div>
       </div>
@@ -245,16 +243,16 @@
       <div class="section-title">Edges</div>
       <div class="grid-2">
         <div class="field">
-          <label class="field__label" for="setRadius">Rounding — <span id="radiusVal"></span></label>
+          <label class="field__label" for="setRadius">Rounding: <span id="radiusVal"></span></label>
           <input class="range" type="range" id="setRadius" min="0" max="30" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setBorderW">Border — <span id="borderWVal"></span></label>
+          <label class="field__label" for="setBorderW">Border: <span id="borderWVal"></span></label>
           <input class="range" type="range" id="setBorderW" min="0" max="4" step="1">
         </div>
       </div>
       <div class="field">
-        <label class="field__label" for="setShadow">Shadow depth — <span id="shadowVal"></span></label>
+        <label class="field__label" for="setShadow">Shadow depth: <span id="shadowVal"></span></label>
         <input class="range" type="range" id="setShadow" min="0" max="3" step="0.1">
       </div>
 
@@ -271,7 +269,7 @@
         <input type="checkbox" id="setAnimations">
       </div>
       <div class="field">
-        <label class="field__label" for="setSpeed">Animation speed — <span id="speedVal"></span></label>
+        <label class="field__label" for="setSpeed">Animation speed: <span id="speedVal"></span></label>
         <input class="range" type="range" id="setSpeed" min="0.05" max="0.6" step="0.05">
       </div>
     </section>
@@ -282,9 +280,9 @@
       <div class="field">
         <label class="field__label" for="setFont">Interface font</label>
         <select class="select" id="setFont">
-          <option value="book">Book — Iowan / Palatino</option>
-          <option value="literary">Literary — Charter / Georgia</option>
-          <option value="transitional">Transitional — Baskerville</option>
+          <option value="book">Book, Iowan / Palatino</option>
+          <option value="literary">Literary, Charter / Georgia</option>
+          <option value="transitional">Transitional, Baskerville</option>
           <option value="system">System sans</option>
           <option value="mono">Monospace</option>
           <option value="custom">Custom…</option>
@@ -303,19 +301,19 @@
       <div class="section-title">Metrics</div>
       <div class="grid-2">
         <div class="field">
-          <label class="field__label" for="setFontSize">Size — <span id="fontSizeVal"></span></label>
+          <label class="field__label" for="setFontSize">Size: <span id="fontSizeVal"></span></label>
           <input class="range" type="range" id="setFontSize" min="11" max="22" step="1">
         </div>
         <div class="field">
-          <label class="field__label" for="setLineHeight">Line height — <span id="lineHeightVal"></span></label>
+          <label class="field__label" for="setLineHeight">Line height: <span id="lineHeightVal"></span></label>
           <input class="range" type="range" id="setLineHeight" min="1.2" max="2.1" step="0.05">
         </div>
         <div class="field">
-          <label class="field__label" for="setLetterSpacing">Letter spacing — <span id="letterSpacingVal"></span></label>
+          <label class="field__label" for="setLetterSpacing">Letter spacing: <span id="letterSpacingVal"></span></label>
           <input class="range" type="range" id="setLetterSpacing" min="-0.03" max="0.12" step="0.005">
         </div>
         <div class="field">
-          <label class="field__label" for="setBoldWeight">Bold weight — <span id="boldWeightVal"></span></label>
+          <label class="field__label" for="setBoldWeight">Bold weight: <span id="boldWeightVal"></span></label>
           <input class="range" type="range" id="setBoldWeight" min="500" max="900" step="50">
         </div>
       </div>
@@ -323,7 +321,7 @@
 
     <!-- ---------------- Branding ---------------- -->
     <section class="panel" data-panel="brand">
-      <div class="callout">Rename the whole thing. It's your platform — Cram is just the default.</div>
+      <div class="callout">Rename the whole thing. It's your platform, Cram is just the default.</div>
       <div class="grid-2">
         <div class="field">
           <label class="field__label" for="setBrandLogo">Logo emoji</label>
@@ -398,11 +396,7 @@
         <input type="checkbox" id="setConfirmDelete">
       </div>
       <div class="field">
-        <label class="field__label" for="setDefaultPilot">Default pilot for new chats</label>
-        <select class="select" id="setDefaultPilot"></select>
-      </div>
-      <div class="field">
-        <label class="field__label" for="setDemoSpeed">Demo typing speed — <span id="demoSpeedVal"></span></label>
+        <label class="field__label" for="setDemoSpeed">Demo typing speed: <span id="demoSpeedVal"></span></label>
         <input class="range" type="range" id="setDemoSpeed" min="0" max="60" step="1">
         <span class="field__help">Delay per word in demo mode. 0 = instant.</span>
       </div>
@@ -412,9 +406,32 @@
     <section class="panel" data-panel="model">
       <div class="callout">
         Cram uses <strong>your own API key</strong>. On a hosted deployment the key is stored
-        encrypted on the server and <strong>the server makes the provider call</strong> — the key is
+        encrypted on the server and <strong>the server makes the provider call</strong>. the key is
         never sent to your browser. Running the static build with no server behind it, you can instead
         keep a key in this browser and call the provider directly.
+      </div>
+
+      <div class="section-title">Model</div>
+      <div class="grid-2">
+        <div class="field">
+          <label class="field__label" for="setProviderPick">Provider</label>
+          <select class="select" id="setProviderPick"></select>
+        </div>
+        <div class="field">
+          <label class="field__label" for="setModelPick">Model</label>
+          <select class="select" id="setModelPick"></select>
+        </div>
+      </div>
+      <div class="field"><span class="field__help" id="modelCapabilities"></span></div>
+
+      <div class="field" id="effortField">
+        <label class="field__label" for="setEffort">Thinking effort</label>
+        <select class="select" id="setEffort"></select>
+        <span class="field__help">How long the model is willing to reason before answering.</span>
+      </div>
+      <div class="switch">
+        <span class="switch__text">Show the thinking <span class="field__help">(collapsed, with elapsed time)</span></span>
+        <input type="checkbox" id="setShowThinking">
       </div>
 
       <div class="section-title">Connections</div>
@@ -424,7 +441,7 @@
         <button class="btn btn--sm" id="useSharedBtn" hidden>Use this server's key</button>
       </div>
       <p class="field__help" id="connHint" hidden>
-        This deployment relays every request itself, so there is nothing to configure here —
+        This deployment relays every request itself, so there is nothing to configure here 
         no endpoint, no key in the browser.
       </p>
 
@@ -436,11 +453,11 @@
       </div>
       <div class="grid-2">
         <div class="field">
-          <label class="field__label" for="setTemp">Temperature — <span id="tempVal"></span></label>
+          <label class="field__label" for="setTemp">Temperature: <span id="tempVal"></span></label>
           <input class="range" type="range" id="setTemp" min="0" max="1" step="0.05">
         </div>
         <div class="field">
-          <label class="field__label" for="setTopP">Top-p — <span id="topPVal"></span></label>
+          <label class="field__label" for="setTopP">Top-p: <span id="topPVal"></span></label>
           <input class="range" type="range" id="setTopP" min="0" max="1" step="0.05">
         </div>
         <div class="field">
@@ -467,16 +484,6 @@
       </div>
     </section>
 
-    <!-- ---------------- Pilots ---------------- -->
-    <section class="panel" data-panel="pilots">
-      <div class="callout">
-        A <strong>pilot</strong> is a saved persona: its own system prompt, greeting, starter questions, accent
-        colour and optional model/temperature/token overrides. Chats remember which pilot started them.
-      </div>
-      <div id="pilotEditor"></div>
-      <button class="btn btn--full" id="addPilotBtn"><span>＋</span><span>New pilot</span></button>
-    </section>
-
     <!-- ---------------- Prompts ---------------- -->
     <section class="panel" data-panel="prompts">
       <div class="callout">
@@ -491,7 +498,7 @@
     <section class="panel" data-panel="advanced">
       <div class="section-title">Custom CSS</div>
       <div class="callout">
-        Injected into the page live. Every token in the stylesheet is fair game — start from
+        Injected into the page live. Every token in the stylesheet is fair game, start from
         <code>:root { --accent: … }</code> and go from there.
       </div>
       <div class="field">
@@ -534,8 +541,8 @@
       <div class="callout" id="keyVaultNote">
         Keys saved here are encrypted on the server with AES-256-GCM and only decrypted
         while your own request is in flight. Requests then go through this site rather
-        than straight from your browser. The alternative — a key typed into
-        <strong>Settings → Model</strong> — never leaves your browser but sits in plain
+        than straight from your browser. The alternative, a key typed into
+        <strong>Settings → Model</strong>. never leaves your browser but sits in plain
         <code>localStorage</code>.
       </div>
       <div id="keyVault"></div>
@@ -543,8 +550,9 @@
         <div class="field">
           <label class="field__label" for="keyProvider">Provider</label>
           <select class="select" id="keyProvider">
-            <option value="anthropic">Anthropic</option>
-            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="deepseek">DeepSeek</option>
           </select>
         </div>
         <div class="field">
@@ -561,7 +569,7 @@
       <div class="section-title">Backup</div>
       <div class="field">
         <span class="field__help">
-          Everything — settings, theme, pilots, prompts, connections and chats — lives in this browser's
+          Everything, settings, theme, pilots, prompts, connections and chats, lives in this browser's
           localStorage. Nothing is uploaded anywhere.
         </span>
       </div>
