@@ -459,10 +459,12 @@ const server = http.createServer(async (req, res) => {
       catch { return send(res, 400, "Bad request"); }
 
       const email = form.get("email") ?? "";
-      const found = verifyUser(email, form.get("password") ?? "");
+      const password = form.get("password") ?? "";
+      const found = verifyUser(email, password);
       if (found) {
         attempts.delete(ip);
-        noteLogin(found.id);
+        // pass the plaintext so an older, cheaper hash gets upgraded in place
+        noteLogin(found.id, password);
         console.log(`login ok: ${found.email} from ${ip}`);
         return startSession(found);
       }
