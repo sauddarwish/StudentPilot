@@ -145,12 +145,12 @@ function contrastOn(hex) {
 function applyBrand() {
   const b = state.brand;
   $("#brandLogo").textContent = b.logo || "🎓";
-  $("#brandName").textContent = b.name || "StudentPilot";
+  $("#brandName").textContent = b.name || "Cram";
   $("#welcomeTitle").textContent = b.welcomeTitle;
   $("#welcomeSubtitle").textContent = b.welcomeSubtitle;
   dom.sendBtn.textContent = b.sendLabel || "Send";
   dom.input.placeholder = b.placeholder || "";
-  document.title = b.name || "StudentPilot";
+  document.title = b.name || "Cram";
   $("#favicon").href =
     "data:image/svg+xml," +
     encodeURIComponent(
@@ -1254,7 +1254,7 @@ function exportChatMarkdown() {
 
 function wireData() {
   $("#exportAllBtn").onclick = () => {
-    download("studentpilot-config.json", JSON.stringify(state, null, 2), "application/json");
+    download("cram-config.json", JSON.stringify(state, null, 2), "application/json");
     toast("Config exported");
   };
   $("#importAllBtn").onclick = () => pickFile("#importFile", (json) => {
@@ -1262,7 +1262,7 @@ function wireData() {
   });
 
   $("#exportThemeBtn").onclick = () => {
-    download("studentpilot-theme.json", JSON.stringify({ ui: state.ui, brand: state.brand }, null, 2), "application/json");
+    download("cram-theme.json", JSON.stringify({ ui: state.ui, brand: state.brand }, null, 2), "application/json");
     toast("Theme exported");
   };
   $("#importThemeBtn").onclick = () => pickFile("#importThemeFile", (json) => {

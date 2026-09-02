@@ -1,7 +1,7 @@
 /* ==========================================================================
    api.js — the only file that talks to a model.
    Nothing else in the app knows what a provider is; swap this out and the
-   rest of StudentPilot keeps working.
+   rest of Cram keeps working.
 
    Public surface:
      streamReply({ system, messages, cfg, signal, pilotName }) -> async gen
@@ -25,7 +25,7 @@ function demoReply(userText, pilotName) {
 
 **You asked:** ${topic}
 
-This is a **demo response** — StudentPilot's frontend is fully wired, but no model is connected yet, so I'm echoing a stub instead of thinking.
+This is a **demo response** — Cram's frontend is fully wired, but no model is connected yet, so I'm echoing a stub instead of thinking.
 
 To make this real:
 

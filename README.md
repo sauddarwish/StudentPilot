@@ -1,9 +1,9 @@
-# StudentPilot 🎓
+# Cram 🎓
 
 A deeply customizable AI study workspace. Zero build step, zero dependencies — just
 static HTML, CSS and ES modules, so it drops straight onto GitHub Pages.
 
-**Live:** https://sauddarwish.github.io/StudentPilot/
+**Live:** https://cram.averon.club
 
 Right now it runs in **demo mode**: the whole frontend works and assembles real
 requests, but the network call returns a scripted stub. Point it at an endpoint and
@@ -98,13 +98,13 @@ shapes and parses SSE streams from either.
 can't: **enforce access** and **hold a secret**.
 
 ```bash
-git clone https://github.com/sauddarwish/StudentPilot.git /opt/studentpilot
-cd /opt/studentpilot/server
+git clone https://github.com/sauddarwish/StudentPilot.git /opt/cram
+cd /opt/cram/server
 cp .env.example .env
 node set-password.js          # prints a password, stores only its scrypt hash
 $EDITOR .env                  # add ANTHROPIC_API_KEY
-sudo cp studentpilot.service /etc/systemd/system/
-sudo systemctl enable --now studentpilot
+sudo cp cram.service /etc/systemd/system/
+sudo systemctl enable --now cram
 ```
 
 Then put nginx in front of `127.0.0.1:$PORT` with `proxy_buffering off` (streaming
@@ -125,7 +125,7 @@ else return 404.
 never shipped to the client.
 
 Rotate the password any time with `node set-password.js` followed by
-`sudo systemctl restart studentpilot`.
+`sudo systemctl restart cram`.
 
 ### About keys in the browser
 
@@ -143,7 +143,7 @@ The app uses ES modules, so it needs to be served over HTTP rather than opened a
 `file://` path:
 
 ```bash
-cd StudentPilot
+cd Cram
 python3 -m http.server 8000
 # → http://localhost:8000
 ```

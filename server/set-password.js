@@ -53,4 +53,4 @@ fs.chmodSync(ENV, 0o600);
 console.log("\n  Site password:  " + password);
 console.log("\n  Hash written to " + ENV + " (mode 600).");
 console.log("  This plaintext is not stored anywhere — save it now.\n");
-console.log("  Restart to apply:  sudo systemctl restart studentpilot\n");
+console.log("  Restart to apply:  sudo systemctl restart cram\n");

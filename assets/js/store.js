@@ -3,7 +3,7 @@
    Everything lives in localStorage under one key so export/import is trivial.
    ========================================================================== */
 
-export const STORAGE_KEY = "studentpilot.v1";
+export const STORAGE_KEY = "cram.v1";
 
 export const ACCENTS = [
   "#6366f1", "#0ea5e9", "#10b981", "#f59e0b",
@@ -117,7 +117,7 @@ export const DEFAULT_PILOTS = [
     id: "general", emoji: "🎓", name: "General", accent: "",
     desc: "A straight-talking study partner for anything.",
     system:
-      "You are StudentPilot, a study partner for a university student. Be direct and concrete. " +
+      "You are Cram, a study partner for a university student. Be direct and concrete. " +
       "Prefer short paragraphs and worked examples over long preambles. If the student is wrong, say so plainly.",
     greeting: "", model: "", temperature: null, maxTokens: null, starters: [],
   },
@@ -190,7 +190,7 @@ export const DEFAULTS = {
   version: 2,
 
   brand: {
-    name: "StudentPilot",
+    name: "Cram",
     logo: "🎓",
     tagline: "demo mode",
     welcomeTitle: "What are we working on?",
@@ -256,7 +256,7 @@ export const DEFAULTS = {
 
   model: {
     system:
-      "You are StudentPilot, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing.",
+      "You are Cram, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing.",
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,
@@ -285,9 +285,20 @@ function merge(base, saved) {
   return out;
 }
 
+/* the app was called StudentPilot before; carry those settings over once */
+const LEGACY_KEY = "studentpilot.v1";
+
 export function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        localStorage.setItem(STORAGE_KEY, legacy);
+        localStorage.removeItem(LEGACY_KEY);
+        raw = legacy;
+      }
+    }
     if (!raw) return structuredClone(DEFAULTS);
     return merge(structuredClone(DEFAULTS), JSON.parse(raw));
   } catch {
@@ -304,7 +315,7 @@ export function save() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (err) {
-      console.warn("StudentPilot: could not save state", err);
+      console.warn("Cram: could not save state", err);
     }
   }, 120);
 }

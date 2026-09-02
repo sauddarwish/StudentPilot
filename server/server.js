@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ==========================================================================
-   StudentPilot server
+   Cram server
 
    Two jobs:
      1. Gate the whole site behind a password. The check is server-side — an
@@ -258,7 +258,7 @@ function loginPage({ error = "", locked = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>StudentPilot</title>
+<title>Cram</title>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
 <style>
@@ -290,7 +290,7 @@ function loginPage({ error = "", locked = false } = {}) {
 <body>
   <form class="card" method="POST" action="/login">
     <div class="mark">🎓</div>
-    <h1>StudentPilot</h1>
+    <h1>Cram</h1>
     <p class="sub">This site is private. Enter the access password.</p>
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
@@ -454,7 +454,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(CONFIG.port, CONFIG.host, () => {
-  console.log(`StudentPilot listening on http://${CONFIG.host}:${CONFIG.port}`);
+  console.log(`Cram listening on http://${CONFIG.host}:${CONFIG.port}`);
   console.log(`  auth:      ${CONFIG.passwordHash ? "scrypt hash" : "PLAINTEXT password (set a hash instead)"}`);
   console.log(`  anthropic: ${CONFIG.anthropicKey ? "key loaded" : "not configured"}`);
   console.log(`  openai:    ${CONFIG.openaiKey ? "key loaded" : "not configured"}`);
