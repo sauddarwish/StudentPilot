@@ -164,9 +164,17 @@ function readBody(req, limit = CONFIG.maxBodyBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     req.on("data", (c) => {
+      if (over) return;
       size += c.length;
-      if (size > limit) { reject(new Error("payload too large")); req.destroy(); return; }
+      if (size > limit) {
+        over = true;
+        chunks.length = 0;
+        req.resume();                 // drain rather than reset, so we can reply
+        reject(new Error("payload too large"));
+        return;
+      }
       chunks.push(c);
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
@@ -174,15 +182,55 @@ function readBody(req, limit = CONFIG.maxBodyBytes) {
   });
 }
 
+/* connect-src 'self' is load-bearing: even if page code tried to call a
+   provider directly, the browser would refuse. The relay is enforced twice. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",   // the Custom CSS box and the auth pages
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "object-src 'none'",
+].join("; ");
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "same-origin",
+  "content-security-policy": CSP,
+  "x-frame-options": "DENY",
+  "permissions-policy": "geolocation=(), microphone=(), camera=(), payment=()",
+  "cross-origin-opener-policy": "same-origin",
+  "cross-origin-resource-policy": "same-origin",
+};
+
 function send(res, status, body, headers = {}) {
   res.writeHead(status, {
     "content-type": "text/plain; charset=utf-8",
-    "x-content-type-options": "nosniff",
-    "referrer-policy": "same-origin",
+    ...SECURITY_HEADERS,
     ...headers,
   });
   res.end(body);
 }
+
+/* Anything user-controlled that reaches a log line: strip control characters so
+   a crafted email can't forge extra log entries, and cap the length. */
+const logSafe = (value, max = 120) =>
+  String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, max);
+
+/* Request bodies must be JSON objects — not arrays, strings, or null. */
+function parseJsonObject(raw) {
+  const parsed = JSON.parse(raw);
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("expected a JSON object");
+  }
+  return parsed;
+}
+
+const asString = (v, max = 1024) => (typeof v === "string" ? v.slice(0, max) : "");
 
 const html = (res, status, body, headers = {}) =>
   send(res, status, body, { "content-type": "text/html; charset=utf-8", ...headers });
@@ -209,10 +257,21 @@ const MIME = {
 /* only these paths are ever served from disk */
 const SERVE_ALLOW = [/^\/$/, /^\/index\.html$/, /^\/assets\//];
 
-async function serveStatic(req, res, urlPath) {
-  if (!SERVE_ALLOW.some((re) => re.test(urlPath))) return send(res, 404, "Not found");
+/* The URL is percent-decoded before it gets here, so "..%2f" arrives as "../".
+   Collapse the path FIRST and only then test the allowlist — testing before
+   normalising let "/assets/../server/.env" pass as an /assets/ path. */
+function normalizePath(urlPath) {
+  if (typeof urlPath !== "string" || urlPath.includes("\0")) return null;
+  const collapsed = path.posix.normalize(urlPath.replace(/\\/g, "/"));
+  if (!collapsed.startsWith("/") || collapsed.includes("..")) return null;
+  return collapsed;
+}
 
-  const rel = urlPath === "/" ? "index.html" : urlPath.slice(1);
+async function serveStatic(req, res, urlPath) {
+  const safe = normalizePath(urlPath);
+  if (!safe || !SERVE_ALLOW.some((re) => re.test(safe))) return send(res, 404, "Not found");
+
+  const rel = safe === "/" ? "index.html" : safe.slice(1);
   const file = path.resolve(SITE_ROOT, rel);
   if (!file.startsWith(SITE_ROOT + path.sep)) return send(res, 403, "Forbidden");
 
@@ -231,7 +290,7 @@ async function serveStatic(req, res, urlPath) {
     "content-length": stat.size,
     etag,
     "cache-control": "no-cache",
-    "x-content-type-options": "nosniff",
+    ...SECURITY_HEADERS,
   });
   fs.createReadStream(file).pipe(res);
 }
@@ -377,7 +436,7 @@ async function proxy(req, res, route, user) {
      spending their own key is not restricted. */
   if (!usingOwnKey) {
     try {
-      const parsed = JSON.parse(body);
+      const parsed = parseJsonObject(body);
       if (CONFIG.forceModel) parsed.model = CONFIG.forceModel;
       parsed.max_tokens = Math.min(Number(parsed.max_tokens) || CONFIG.maxTokensCap, CONFIG.maxTokensCap);
       body = JSON.stringify(parsed);
@@ -393,12 +452,19 @@ async function proxy(req, res, route, user) {
     return json(res, 502, { error: { type: "upstream_unreachable", message: err.message } });
   }
 
-  console.log(`proxy ${route} for ${user.email} (${usingOwnKey ? "own key" : "shared key"}) -> ${upstream.status}`);
+  console.log(`proxy ${route} for ${logSafe(user.email)} (${usingOwnKey ? "own key" : "shared key"}) -> ${upstream.status}`);
+
+  /* Only reflect a content-type we recognise, rather than echoing whatever the
+     upstream sent back into our own response headers. */
+  const upstreamType = upstream.headers.get("content-type") || "";
+  const safeType = /^text\/event-stream/i.test(upstreamType)
+    ? "text/event-stream; charset=utf-8"
+    : "application/json; charset=utf-8";
 
   res.writeHead(upstream.status, {
-    "content-type": upstream.headers.get("content-type") || "application/json",
+    "content-type": safeType,
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff",
+    ...SECURITY_HEADERS,
   });
   if (!upstream.body) return res.end();
 
@@ -455,8 +521,8 @@ const server = http.createServer(async (req, res) => {
         }));
       }
       let form;
-      try { form = new URLSearchParams(await readBody(req, 8192)); }
-      catch { return send(res, 400, "Bad request"); }
+      try { form = new URLSearchParams(await readBody(req, 16384)); }
+      catch { return send(res, 413, "Request too large"); }
 
       const email = form.get("email") ?? "";
       const password = form.get("password") ?? "";
@@ -465,11 +531,11 @@ const server = http.createServer(async (req, res) => {
         attempts.delete(ip);
         // pass the plaintext so an older, cheaper hash gets upgraded in place
         noteLogin(found.id, password);
-        console.log(`login ok: ${found.email} from ${ip}`);
+        console.log(`login ok: ${logSafe(found.email)} from ${logSafe(ip)}`);
         return startSession(found);
       }
       noteFailure(ip);
-      console.warn(`login failed: ${email} from ${ip}`);
+      console.warn(`login failed: ${logSafe(email)} from ${logSafe(ip)}`);
       return html(res, 401, authPage({
         mode: "login", email, error: "Wrong email or password.",
       }));
@@ -492,8 +558,8 @@ const server = http.createServer(async (req, res) => {
         }));
       }
       let form;
-      try { form = new URLSearchParams(await readBody(req, 8192)); }
-      catch { return send(res, 400, "Bad request"); }
+      try { form = new URLSearchParams(await readBody(req, 16384)); }
+      catch { return send(res, 413, "Request too large"); }
 
       const email = form.get("email") ?? "";
       const password = form.get("password") ?? "";
@@ -511,7 +577,7 @@ const server = http.createServer(async (req, res) => {
 
       attempts.delete(ip);
       noteLogin(result.user.id);
-      console.log(`signup: ${result.user.email} from ${ip}`);
+      console.log(`signup: ${logSafe(result.user.email)} from ${logSafe(ip)}`);
       return startSession(result.user);
     }
     return send(res, 405, "Method not allowed");
@@ -539,18 +605,18 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST") {
       let payload;
-      try { payload = JSON.parse(await readBody(req, 8192)); }
-      catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } }); }
+      try { payload = parseJsonObject(await readBody(req, 8192)); }
+      catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be a JSON object" } }); }
 
-      if (payload.delete) {
-        const removed = deleteApiKey(user.id, payload.provider);
-        console.log(`key ${removed ? "deleted" : "delete-miss"} (${payload.provider}) for ${user.email}`);
+      if (payload.delete === true) {
+        const removed = deleteApiKey(user.id, asString(payload.provider, 32));
+        console.log(`key ${removed ? "deleted" : "delete-miss"} (${logSafe(payload.provider, 24)}) for ${logSafe(user.email)}`);
         return json(res, 200, { ok: removed, keys: listApiKeys(user.id) });
       }
 
-      const result = saveApiKey(user.id, payload.provider, payload.key);
+      const result = saveApiKey(user.id, asString(payload.provider, 32), asString(payload.key, 512));
       if (!result.ok) return json(res, 400, { error: { type: "invalid", message: result.error } });
-      console.log(`key saved (${payload.provider}) for ${user.email}`);
+      console.log(`key saved (${logSafe(payload.provider, 24)}) for ${logSafe(user.email)}`);
       return json(res, 200, { ok: true, keys: listApiKeys(user.id) });
     }
     return send(res, 405, "Method not allowed");
@@ -559,12 +625,12 @@ const server = http.createServer(async (req, res) => {
   /* ---- change password ---- */
   if (urlPath === "/api/password" && req.method === "POST") {
     let payload;
-    try { payload = JSON.parse(await readBody(req, 8192)); }
-    catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be JSON" } }); }
+    try { payload = parseJsonObject(await readBody(req, 8192)); }
+    catch { return json(res, 400, { error: { type: "bad_request", message: "Body must be a JSON object" } }); }
 
-    const result = changePassword(user.id, payload.current ?? "", payload.next ?? "");
+    const result = changePassword(user.id, asString(payload.current), asString(payload.next));
     if (!result.ok) return json(res, 400, { error: { type: "invalid", message: result.error } });
-    console.log(`password changed for ${user.email}`);
+    console.log(`password changed for ${logSafe(user.email)}`);
     // re-issue so the current browser stays signed in
     return json(res, 200, { ok: true }, { "set-cookie": `${COOKIE}=${issueSession(user.id)}; ${cookieAttrs}` });
   }

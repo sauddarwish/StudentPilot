@@ -178,6 +178,8 @@ export function changePassword(id, currentPassword, newPassword) {
   return { ok: true };
 }
 
+const PROVIDERS = ["anthropic", "openai"];
+
 /* ---- stored API keys ----------------------------------------------------
    Encrypted at rest with the server master key (see secretbox.js), decrypted
    only in memory, only while proxying that user's own request.
@@ -185,7 +187,7 @@ export function changePassword(id, currentPassword, newPassword) {
 
 export function saveApiKey(id, provider, plaintextKey) {
   if (!canEncrypt()) return { ok: false, error: "Server has no ENCRYPTION_KEY configured." };
-  if (!["anthropic", "openai"].includes(provider)) return { ok: false, error: "Unknown provider." };
+  if (!PROVIDERS.includes(provider)) return { ok: false, error: "Unknown provider." };
   const key = String(plaintextKey || "").trim();
   if (key.length < 8) return { ok: false, error: "That doesn't look like an API key." };
   if (key.length > 512) return { ok: false, error: "Key is too long." };
@@ -201,6 +203,7 @@ export function saveApiKey(id, provider, plaintextKey) {
 }
 
 export function deleteApiKey(id, provider) {
+  if (!PROVIDERS.includes(provider)) return false;   // never index with arbitrary input
   const users = readAll();
   const user = users.find((u) => u.id === id);
   if (!user?.apiKeys?.[provider]) return false;

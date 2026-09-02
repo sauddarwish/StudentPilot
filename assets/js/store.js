@@ -274,14 +274,23 @@ export const DEFAULTS = {
   activePilotId: "general",
 };
 
+/* Keys that would reassign an object's prototype or constructor rather than
+   setting a normal property. Imported config is untrusted, so they're dropped. */
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /* deep-merge saved state over defaults so new keys land on old installs */
-function merge(base, saved) {
+function merge(base, saved, depth = 0) {
+  if (depth > 12) return base;                       // no unbounded recursion
   if (Array.isArray(base) || saved === null || typeof saved !== "object") {
     return saved === undefined ? base : saved;
   }
   const out = { ...base };
   for (const k of Object.keys(saved)) {
-    out[k] = k in base ? merge(base[k], saved[k]) : saved[k];
+    if (UNSAFE_KEYS.has(k)) continue;
+    if (!Object.prototype.hasOwnProperty.call(saved, k)) continue;
+    out[k] = Object.prototype.hasOwnProperty.call(base, k)
+      ? merge(base[k], saved[k], depth + 1)
+      : saved[k];
   }
   return out;
 }
