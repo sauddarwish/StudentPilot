@@ -146,17 +146,22 @@ only for the duration of that user's own request. `GET /api/keys` returns nothin
 a masked hint like `sk-ant…9f2c`. Losing or changing `ENCRYPTION_KEY` makes stored
 keys undecryptable — they'd need to be re-entered.
 
-Users who'd rather not hand a key to the server can still type one into
-**Settings → Model**; that key stays in their browser and is sent straight to the
-provider, but it does sit in plain `localStorage`. Both options are offered and the
-tradeoff is stated in the UI.
+The browser-held alternative only applies to the **standalone static build** (Pages,
+`file://`, `python -m http.server`), where there is no server to relay through. There
+a key typed into Settings → Model stays in `localStorage` and calls the provider
+directly. Hosted, that path is switched off entirely.
 
-**Keys stay with whoever owns them.** By default each user adds their own API key
-under Settings → Model → Connections; it lives in their browser and the Cram server
-never sees it. Optionally the operator can put a key in `.env` — then `/api/v1`
-becomes a shared endpoint that signed-in users can select with one click, with the
-key attached server-side and `FORCE_MODEL` / `MAX_TOKENS_CAP` applied as spend
-guards. Leave both key fields empty and that endpoint stays off.
+**The server makes every provider call.** On a hosted deployment the browser never
+holds a key and never contacts Anthropic or OpenAI. A user stores their key under
+**Settings → Account**; it is encrypted at rest, and on each message the server
+decrypts it in memory, calls the provider, and streams the response back. The
+Connections editor collapses to a single choice — which stored key to relay through —
+because there is nothing else left to configure. `/api/config` reports
+`serverMode: true` and the frontend switches to this behaviour automatically.
+
+Optionally the operator can also put a key in `.env` as a fallback for users who
+haven't added their own; `FORCE_MODEL` and `MAX_TOKENS_CAP` apply as spend guards to
+that key only.
 
 Settings, pilots and chats are kept per account in `localStorage`, so two people
 sharing a browser keep separate workspaces.

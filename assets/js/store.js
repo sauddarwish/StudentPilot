@@ -255,6 +255,7 @@ export const DEFAULTS = {
   activeConnectionId: "conn-default",
 
   model: {
+    serverProvider: "anthropic",   // which stored key to relay through
     system:
       "You are Cram, a study assistant. Be accurate and concise. Say when you are unsure rather than guessing.",
     temperature: 0.7,

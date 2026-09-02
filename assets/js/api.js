@@ -3,6 +3,10 @@
    Nothing else in the app knows what a provider is; swap this out and the
    rest of Cram keeps working.
 
+   On a hosted deployment `cfg.baseUrl` points at Cram's own /api/v1 and
+   `cfg.apiKey` is empty: the server holds the key and makes the provider call.
+   In the standalone static build it points straight at the provider instead.
+
    Public surface:
      streamReply({ system, messages, cfg, signal, pilotName }) -> async gen
    where cfg merges the active connection (provider/baseUrl/model/key/headers)

@@ -53,6 +53,7 @@ let streaming = false;
    accounts, this stays null, and the app works exactly as before. */
 let account = null;        // { id, email }
 let sharedEndpoint = null; // { available, provider, model, maxTokens, url }
+let serverMode = false;    // served by the Cram server: it relays every request
 let encryptionOn = false;  // server can encrypt stored keys
 let savedKeys = {};        // { anthropic: { hint, savedAt }, … } — masked only
 
@@ -63,6 +64,7 @@ async function loadServerConfig() {
     const cfg = await res.json();
     account = cfg?.user ?? null;
     sharedEndpoint = cfg?.sharedEndpoint ?? null;
+    serverMode = Boolean(cfg?.serverMode);
     encryptionOn = Boolean(cfg?.encryption);
     savedKeys = cfg?.savedKeys ?? {};
   } catch {
@@ -381,6 +383,22 @@ function scrollToEnd(force = false) {
    ========================================================================== */
 
 function effectiveConfig(pilot) {
+  if (serverMode) {
+    /* The request goes to this origin. No key is attached here — the server
+       looks up the caller's stored key, decrypts it, and calls the provider. */
+    return {
+      ...state.model,
+      provider: state.model.serverProvider || "anthropic",
+      baseUrl: new URL("/api/v1", location.origin).href,
+      apiKey: "",
+      headers: [],
+      model: pilot.model || state.model.model,
+      temperature: pilot.temperature ?? state.model.temperature,
+      maxTokens: pilot.maxTokens ?? state.model.maxTokens,
+      demoSpeed: state.behavior.demoSpeed,
+    };
+  }
+
   const conn = activeConnection();
   return {
     ...state.model,
@@ -863,6 +881,43 @@ function renderConnections() {
   const host = $("#connectionEditor");
   host.replaceChildren();
 
+  if (serverMode) {
+    const stored = Object.keys(savedKeys);
+    const note = el("div", stored.length ? "callout" : "callout callout--warn");
+    note.append(
+      el("strong", null, stored.length ? "Relayed by this server. " : "No API key stored yet. "),
+      el("span", null, stored.length
+        ? "Your key is decrypted on the server for the duration of each request. " +
+          "It is never sent to this browser, and this browser never contacts the provider."
+        : "Add one under Settings → Account. Until then Cram replies with a demo stub."),
+    );
+    host.append(note);
+
+    const card = el("div", "card");
+
+    const label = el("label", "field__label", "Send through");
+    card.append(label);
+
+    const select = el("select", "select");
+    for (const [value, text] of [["anthropic", "Anthropic"], ["openai", "OpenAI"]]) {
+      const o = el("option", null, savedKeys[value] ? `${text} — key stored` : `${text} — no key`);
+      o.value = value;
+      select.append(o);
+    }
+    select.value = state.model.serverProvider || "anthropic";
+    select.onchange = () => { state.model.serverProvider = select.value; syncServerLiveState(); };
+    card.append(select);
+
+    const go = el("button", "btn btn--sm", "Manage stored keys →");
+    go.type = "button";
+    go.style.marginTop = "10px";
+    go.onclick = () => selectTab("account");
+    card.append(go);
+
+    host.append(card);
+    return;
+  }
+
   state.connections.forEach((c, idx) => {
     const card = el("div", "card");
     card.setAttribute("aria-current", String(c.id === state.activeConnectionId));
@@ -1005,6 +1060,18 @@ function wireModel() {
 }
 
 function updateStatus() {
+  if (serverMode) {
+    const provider = state.model.serverProvider || "anthropic";
+    const ready = Boolean(savedKeys[provider]);
+    dom.connBadge.textContent = ready ? "relayed" : "no key";
+    dom.connBadge.className = `badge${ready ? " badge--live" : ""}`;
+    $("#modeTag").textContent = ready ? `via server · ${provider}` : state.brand.tagline;
+    dom.modelHint.textContent = ready
+      ? `server relays to ${provider}`
+      : "add a key in Settings → Account";
+    return;
+  }
+
   const live = state.model.live;
   const conn = activeConnection();
   dom.connBadge.textContent = live ? "live" : "demo";
@@ -1365,6 +1432,7 @@ function renderKeyVault() {
       try {
         const out = await postJson("/api/keys", { provider, delete: true });
         savedKeys = out.keys ?? {};
+        syncServerLiveState();
         renderKeyVault(); renderConnections();
         toast("Key deleted");
       } catch (err) { toast(err.message); }
@@ -1378,6 +1446,14 @@ function renderKeyVault() {
     card.append(when);
     host.append(card);
   }
+}
+
+/** In server mode there is nothing to toggle: we're live iff a key is stored. */
+function syncServerLiveState() {
+  if (!serverMode) return;
+  state.model.live = Boolean(savedKeys[state.model.serverProvider || "anthropic"]);
+  save();
+  updateStatus();
 }
 
 function wireAccountPanel() {
@@ -1415,7 +1491,9 @@ function wireAccountPanel() {
       const out = await postJson("/api/keys", { provider, key });
       savedKeys = out.keys ?? {};
       $("#keyValue").value = "";
-      status.textContent = "Stored, encrypted. Add a connection pointing at this server to use it.";
+      state.model.serverProvider = provider;
+      status.textContent = "Stored, encrypted. Cram will relay your requests through it.";
+      syncServerLiveState();
       renderKeyVault(); renderConnections();
       toast("Key encrypted and stored");
     } catch (err) {
@@ -1551,6 +1629,15 @@ function wireEvents() {
     save(); renderPromptEditor();
   };
 
+  if (serverMode) {
+    $("#addConnBtn").hidden = true;
+    $("#useSharedBtn").hidden = true;
+    $("#connHint").hidden = false;
+    $("#setLive").closest(".switch").hidden = true;   // derived, not chosen
+    renderConnections();
+    return;
+  }
+
   const useShared = $("#useSharedBtn");
   const hasStoredKey = Object.keys(savedKeys).length > 0;
   useShared.hidden = !((sharedEndpoint && sharedEndpoint.available) || hasStoredKey);
@@ -1623,6 +1710,7 @@ function wireEvents() {
 async function boot() {
   await loadServerConfig();
   if (account) useAccount(account.id);
+  if (serverMode) state.model.live = Boolean(savedKeys[state.model.serverProvider || "anthropic"]);
   applyAppearance();
   applyBrand();
   wireTheme();

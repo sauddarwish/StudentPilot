@@ -411,9 +411,10 @@
     <!-- ---------------- Model ---------------- -->
     <section class="panel" data-panel="model">
       <div class="callout">
-        Cram talks to the model straight from your browser using <strong>your own API key</strong> —
-        add a connection below and turn on Live mode. Until then it replies with a scripted demo stub.
-        Your key is stored only in this browser and is never sent to the Cram server.
+        Cram uses <strong>your own API key</strong>. On a hosted deployment the key is stored
+        encrypted on the server and <strong>the server makes the provider call</strong> — the key is
+        never sent to your browser. Running the static build with no server behind it, you can instead
+        keep a key in this browser and call the provider directly.
       </div>
 
       <div class="section-title">Connections</div>
@@ -422,6 +423,10 @@
         <button class="btn btn--full" id="addConnBtn"><span>＋</span><span>New connection</span></button>
         <button class="btn btn--sm" id="useSharedBtn" hidden>Use this server's key</button>
       </div>
+      <p class="field__help" id="connHint" hidden>
+        This deployment relays every request itself, so there is nothing to configure here —
+        no endpoint, no key in the browser.
+      </p>
 
       <div class="section-title">Generation defaults</div>
       <div class="field">

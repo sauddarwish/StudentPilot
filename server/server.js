@@ -572,6 +572,9 @@ const server = http.createServer(async (req, res) => {
   if (urlPath === "/api/config") {
     return json(res, 200, {
       user: { id: user.id, email: user.email },
+      /* The browser must not hold keys or call providers directly when the app
+         is served from here — every request is relayed by this server. */
+      serverMode: true,
       encryption: canEncrypt(),
       savedKeys: canEncrypt() ? listApiKeys(user.id) : {},
       sharedEndpoint: {
