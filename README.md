@@ -34,12 +34,14 @@ X and Y, avatar size, sidebar width, corner rounding, border thickness, shadow
 depth and animation speed · sidebar on the left or right · animation kill-switch.
 
 ### Type
-Five font presets plus a custom stack field · separate code-font stack · size,
-line height, letter spacing and bold weight.
+Size, line height, letter spacing and bold weight. The typeface itself is fixed.
 
-### Branding
-Rename the whole thing, app name, logo emoji (it becomes the favicon), tagline,
-welcome heading and subheading, send-button label, composer placeholder.
+### Fixed identity
+The name, logo, tagline, welcome copy and typeface are constants in `store.js`, not
+state. They are never persisted, never included in an export, and are stripped from
+anything imported, so a hand-edited `localStorage` entry or a shared config file
+cannot rebrand the app. The font tokens are written as `!important` inline styles so
+the Custom CSS box cannot repoint them either.
 
 ### Behaviour
 Enter-to-send · live word count · timestamps · hover actions · auto-scroll ·

@@ -208,18 +208,24 @@ export const DEFAULT_CONNECTIONS = [
   },
 ];
 
-export const DEFAULTS = {
-  version: 4,
+/* Fixed identity. Deliberately not part of `state`: it is never persisted,
+   never exported, and cannot be reached by an imported config or by editing
+   localStorage by hand. The same goes for the typeface below. */
+export const BRAND = Object.freeze({
+  name: "Cram",
+  logo: "🎓",
+  tagline: "demo mode",
+  welcomeTitle: "What are we working on?",
+  welcomeSubtitle: "Ask anything. Attach an image if the model supports it.",
+  sendLabel: "Send ↵",
+  placeholder: "Ask anything. Type / for saved prompts.",
+});
 
-  brand: {
-    name: "Cram",
-    logo: "🎓",
-    tagline: "demo mode",
-    welcomeTitle: "What are we working on?",
-    welcomeSubtitle: "Ask anything. Attach an image if the model supports it.",
-    sendLabel: "Send ↵",
-    placeholder: "Ask anything. Type / for saved prompts.",
-  },
+export const UI_FONT = FONT_STACKS.book;
+export const CODE_FONT = FONT_STACKS.mono;
+
+export const DEFAULTS = {
+  version: 5,
 
   ui: {
     theme: "system",
@@ -229,9 +235,6 @@ export const DEFAULTS = {
     gradient: false,
     palettes: { light: {}, dark: {} },   // per-mode manual colour overrides
 
-    font: "book",                        // key into FONT_STACKS, or "custom"
-    fontMono: FONT_STACKS.mono,
-    fontCustom: "",
     fontSize: 16,
     lineHeight: 1.68,
     letterSpacing: 0,
@@ -362,6 +365,12 @@ export function load(key = activeKey) {
       delete merged.behavior?.defaultPilot;
       for (const chat of merged.chats ?? []) delete chat.pilotId;
     }
+    /* v5 made the name, logo and typeface fixed. Anything an older install or
+       an imported file carried for those is discarded on load. */
+    delete merged.brand;
+    delete merged.ui?.font;
+    delete merged.ui?.fontCustom;
+    delete merged.ui?.fontMono;
     merged.version = DEFAULTS.version;
     return merged;
   } catch {

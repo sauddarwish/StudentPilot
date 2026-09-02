@@ -111,7 +111,6 @@
     <button class="tab" role="tab" data-tab="theme"    aria-selected="true">Theme</button>
     <button class="tab" role="tab" data-tab="layout"   aria-selected="false">Layout</button>
     <button class="tab" role="tab" data-tab="type"     aria-selected="false">Type</button>
-    <button class="tab" role="tab" data-tab="brand"    aria-selected="false">Branding</button>
     <button class="tab" role="tab" data-tab="behavior" aria-selected="false">Behaviour</button>
     <button class="tab" role="tab" data-tab="model"    aria-selected="false">Model</button>
     <button class="tab" role="tab" data-tab="prompts"  aria-selected="false">Prompts</button>
@@ -276,26 +275,9 @@
 
     <!-- ---------------- Type ---------------- -->
     <section class="panel" data-panel="type">
-      <div class="section-title">Fonts</div>
-      <div class="field">
-        <label class="field__label" for="setFont">Interface font</label>
-        <select class="select" id="setFont">
-          <option value="book">Book, Iowan / Palatino</option>
-          <option value="literary">Literary, Charter / Georgia</option>
-          <option value="transitional">Transitional, Baskerville</option>
-          <option value="system">System sans</option>
-          <option value="mono">Monospace</option>
-          <option value="custom">Custom…</option>
-        </select>
-      </div>
-      <div class="field" id="fontCustomField" hidden>
-        <label class="field__label" for="setFontCustom">Custom font stack</label>
-        <input class="input" id="setFontCustom" placeholder='"Helvetica Neue", Arial, sans-serif' spellcheck="false">
-        <span class="field__help">Any font already installed on the viewer's machine. No web fonts are loaded.</span>
-      </div>
-      <div class="field">
-        <label class="field__label" for="setFontMono">Code font stack</label>
-        <input class="input" id="setFontMono" spellcheck="false">
+      <div class="callout">
+        The typeface is part of Cram's identity and is fixed. Size and spacing below are
+        yours to set.
       </div>
 
       <div class="section-title">Metrics</div>
@@ -315,43 +297,6 @@
         <div class="field">
           <label class="field__label" for="setBoldWeight">Bold weight: <span id="boldWeightVal"></span></label>
           <input class="range" type="range" id="setBoldWeight" min="500" max="900" step="50">
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------------- Branding ---------------- -->
-    <section class="panel" data-panel="brand">
-      <div class="callout">Rename the whole thing. It's your platform, Cram is just the default.</div>
-      <div class="grid-2">
-        <div class="field">
-          <label class="field__label" for="setBrandLogo">Logo emoji</label>
-          <input class="input" id="setBrandLogo" maxlength="4">
-        </div>
-        <div class="field">
-          <label class="field__label" for="setBrandName">App name</label>
-          <input class="input" id="setBrandName">
-        </div>
-      </div>
-      <div class="field">
-        <label class="field__label" for="setBrandTagline">Sidebar tagline <span class="field__help">(shown in demo mode)</span></label>
-        <input class="input" id="setBrandTagline">
-      </div>
-      <div class="field">
-        <label class="field__label" for="setWelcomeTitle">Welcome heading</label>
-        <input class="input" id="setWelcomeTitle">
-      </div>
-      <div class="field">
-        <label class="field__label" for="setWelcomeSubtitle">Welcome subheading</label>
-        <input class="input" id="setWelcomeSubtitle">
-      </div>
-      <div class="grid-2">
-        <div class="field">
-          <label class="field__label" for="setSendLabel">Send button label</label>
-          <input class="input" id="setSendLabel">
-        </div>
-        <div class="field">
-          <label class="field__label" for="setPlaceholder">Composer placeholder</label>
-          <input class="input" id="setPlaceholder">
         </div>
       </div>
     </section>

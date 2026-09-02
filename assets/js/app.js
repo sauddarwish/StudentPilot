@@ -5,7 +5,7 @@
 import {
   state, save, replaceState, resetState, uid, move,
   ACCENTS, THEME_PRESETS, LAYOUT_PRESETS, FONT_STACKS, DEFAULTS, storageKey, useAccount,
-  PROVIDERS, modelInfo, supportsImages, supportsThinking,
+  PROVIDERS, modelInfo, supportsImages, supportsThinking, BRAND, UI_FONT, CODE_FONT,
   activeChat, activeConnection, newChat, deleteChat, titleFrom,
 } from "./store.js";
 import { render as md } from "./markdown.js";
@@ -99,11 +99,6 @@ const isDark = () =>
 
 const currentMode = () => (isDark() ? "dark" : "light");
 
-function fontStack() {
-  const u = state.ui;
-  return u.font === "custom" ? (u.fontCustom || FONT_STACKS.system) : (FONT_STACKS[u.font] || FONT_STACKS.system);
-}
-
 function applyAppearance() {
   const u = state.ui;
   const s = dom.root.style;
@@ -125,8 +120,10 @@ function applyAppearance() {
   s.setProperty("--accent-fg", contrastOn(u.accent));
 
   /* typography */
-  s.setProperty("--font-ui", fontStack());
-  s.setProperty("--font-mono", u.fontMono || FONT_STACKS.mono);
+  /* Set as !important so the Custom CSS box cannot repoint the typeface: an
+     inline important declaration outranks anything a stylesheet can say. */
+  s.setProperty("--font-ui", UI_FONT, "important");
+  s.setProperty("--font-mono", CODE_FONT, "important");
   s.setProperty("--font-size", `${u.fontSize}px`);
   s.setProperty("--line-height", String(u.lineHeight));
   s.setProperty("--letter-spacing", `${u.letterSpacing}em`);
@@ -170,7 +167,7 @@ function contrastOn(hex) {
 }
 
 function applyBrand() {
-  const b = state.brand;
+  const b = BRAND;
   $("#brandLogo").textContent = b.logo || "🎓";
   $("#brandName").textContent = b.name || "Cram";
   $("#welcomeTitle").textContent = b.welcomeTitle;
@@ -915,34 +912,11 @@ function syncTypeInputs() {
 function wireType() {
   const u = state.ui;
 
-  const toggleCustom = () => { $("#fontCustomField").hidden = u.font !== "custom"; };
-  bind("#setFont", () => u.font, (v) => { u.font = v; toggleCustom(); applyAppearance(); }, { event: "change" });
-  toggleCustom();
-
-  bind("#setFontCustom", () => u.fontCustom, (v) => { u.fontCustom = v; applyAppearance(); });
-  bind("#setFontMono", () => u.fontMono, (v) => { u.fontMono = v; applyAppearance(); });
-
   for (const [sel, key, valSel, format] of TYPE_RANGES) {
     bind(sel, () => u[key], (v) => {
       u[key] = v; applyAppearance(); fmt(valSel, () => format(u[key]));
     }, { cast: Number });
     fmt(valSel, () => format(u[key]));
-  }
-}
-
-/* ==========================================================================
-   Branding panel
-   ========================================================================== */
-
-function wireBrand() {
-  const b = state.brand;
-  const pairs = [
-    ["#setBrandLogo", "logo"], ["#setBrandName", "name"], ["#setBrandTagline", "tagline"],
-    ["#setWelcomeTitle", "welcomeTitle"], ["#setWelcomeSubtitle", "welcomeSubtitle"],
-    ["#setSendLabel", "sendLabel"], ["#setPlaceholder", "placeholder"],
-  ];
-  for (const [sel, key] of pairs) {
-    bind(sel, () => b[key], (v) => { b[key] = v; applyBrand(); updateStatus(); });
   }
 }
 
@@ -1230,7 +1204,7 @@ function updateStatus() {
     const ready = Boolean(savedKeys[provider]);
     dom.connBadge.textContent = ready ? "relayed" : "no key";
     dom.connBadge.className = `badge${ready ? " badge--live" : ""}`;
-    $("#modeTag").textContent = ready ? `via server · ${provider}` : state.brand.tagline;
+    $("#modeTag").textContent = ready ? `via server · ${provider}` : BRAND.tagline;
     const info = modelInfo(provider, state.model.model);
     dom.modelHint.textContent = ready
       ? `${info?.name || state.model.model} via server`
@@ -1242,7 +1216,7 @@ function updateStatus() {
   const conn = activeConnection();
   dom.connBadge.textContent = live ? "live" : "demo";
   dom.connBadge.className = `badge${live ? " badge--live" : ""}`;
-  $("#modeTag").textContent = live ? conn.model || "no model set" : state.brand.tagline;
+  $("#modeTag").textContent = live ? conn.model || "no model set" : BRAND.tagline;
   dom.modelHint.textContent = live ? `${conn.label} · ${conn.model}` : "demo replies";
 }
 
@@ -1387,7 +1361,7 @@ function exportChatMarkdown() {
     }),
   ];
   const safe = chat.title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "chat";
-  download(`${(state.brand.name || "chat").toLowerCase()}-${safe}.md`, lines.join("\n"), "text/markdown");
+  download(`${BRAND.name.toLowerCase()}-${safe}.md`, lines.join("\n"), "text/markdown");
   toast("Exported");
 }
 
@@ -1401,19 +1375,17 @@ function wireData() {
   });
 
   $("#exportThemeBtn").onclick = () => {
-    download("cram-theme.json", JSON.stringify({ ui: state.ui, brand: state.brand }, null, 2), "application/json");
+    download("cram-theme.json", JSON.stringify({ ui: state.ui }, null, 2), "application/json");
     toast("Theme exported");
   };
   $("#importThemeBtn").onclick = () => pickFile("#importThemeFile", (json) => {
     if (json.ui) Object.assign(state.ui, json.ui);
-    if (json.brand) Object.assign(state.brand, json.brand);
     save(); location.reload();
   });
 
   $("#resetThemeBtn").onclick = () => {
     if (!confirm("Reset the look (theme, layout, type, branding)? Your chats are kept.")) return;
     Object.assign(state.ui, structuredClone(DEFAULTS.ui));
-    Object.assign(state.brand, structuredClone(DEFAULTS.brand));
     save(); location.reload();
   };
   $("#resetBtn").onclick = () => {
@@ -1588,7 +1560,6 @@ function randomiseLook() {
   u.bubbles = pick(["card", "plain", "solid", "outline"]);
   u.align = pick(["left", "left", "split"]);
   u.avatars = pick(["emoji", "emoji", "initials", "none"]);
-  u.font = pick(["system", "system", "serif", "mono", "rounded"]);
   u.radius = pick([0, 4, 8, 14, 20, 26]);
   u.borderW = pick([0, 1, 1, 2]);
   u.shadow = pick([0, 0.5, 1, 1.8]);
@@ -1612,11 +1583,9 @@ function syncVariantInputs() {
   $("#setAlign").value = u.align;
   $("#setAvatars").value = u.avatars;
   $("#setPattern").value = u.pattern;
-  $("#setFont").value = u.font;
   $("#setAccent").value = u.accent;
   $("#setAccent2").value = u.accent2;
   $("#setGradient").checked = u.gradient;
-  $("#fontCustomField").hidden = u.font !== "custom";
 }
 
 function renderAll() {
@@ -1785,7 +1754,6 @@ async function boot() {
   wireTheme();
   wireLayout();
   wireType();
-  wireBrand();
   wireBehavior();
   wireModel();
   wireAdvanced();
@@ -1797,6 +1765,9 @@ async function boot() {
   renderAll();
   autosize();
   updateCount();
+  /* Write the normalised shape straight back, so keys dropped by a migration
+     (brand, typeface, the old pilots) do not linger in storage. */
+  save();
   dom.input.focus();
 }
 
